@@ -1,0 +1,24 @@
+import { NextResponse } from "next/server";
+import { getSnapshot, snapshotOrigin } from "@/lib/snapshot";
+import { cacheStats } from "@/lib/cache/responseCache";
+import { llmAvailable, MODEL } from "@/lib/llm/client";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/** Liveness plus the operational numbers worth watching in a demo. */
+export async function GET() {
+  const snapshot = getSnapshot();
+  return NextResponse.json({
+    ok: true,
+    snapshot: {
+      version: snapshot.version,
+      ...snapshotOrigin(),
+      analyzable: snapshot.counts.analyzable,
+      rawRows: snapshot.counts.rawRows,
+      dateRange: snapshot.dateRange,
+    },
+    llm: { configured: llmAvailable(), model: MODEL },
+    cache: cacheStats(),
+  });
+}
