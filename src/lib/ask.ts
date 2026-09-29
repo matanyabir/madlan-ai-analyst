@@ -20,6 +20,7 @@ import { cacheGet, cacheKey, cacheSet } from "@/lib/cache/responseCache";
 
 export type DegradedReason =
   | "no_api_key"
+  | "ai_disabled"
   | "router_timeout"
   | "router_error"
   | "router_no_tool_call"
@@ -57,6 +58,12 @@ export class QuestionError extends Error {}
 export interface AskOptions {
   /** Skips both the read and the write. Used by tests and the admin preview. */
   skipCache?: boolean;
+  /**
+   * Set false to answer this request without the model. Passed in from the
+   * route handler, which reads it from the request's cookie — server-side
+   * global state cannot work across serverless instances.
+   */
+  useLlm?: boolean;
 }
 
 export async function ask(
@@ -72,7 +79,8 @@ export async function ask(
     throw new QuestionError(`השאלה ארוכה מדי — עד ${MAX_QUESTION_LENGTH} תווים`);
   }
 
-  const key = cacheKey(question, snapshot.version);
+  const llmAllowed = (options.useLlm ?? true) && llmAvailable();
+  const key = cacheKey(question, snapshot.version, llmAllowed ? "llm" : "deterministic");
   if (!options.skipCache) {
     const hit = cacheGet<AskAnswer>(key);
     if (hit) {
@@ -87,8 +95,8 @@ export async function ask(
   let routedBy: "llm" | "deterministic" = "deterministic";
   let routerUsage = { input: 0, output: 0, cacheRead: 0 };
 
-  if (!llmAvailable()) {
-    degradedReasons.push("no_api_key");
+  if (!llmAllowed) {
+    degradedReasons.push(llmAvailable() ? "ai_disabled" : "no_api_key");
   } else {
     const routed = await routeQuestion(snapshot, question);
     if (routed.ok) {
@@ -128,8 +136,10 @@ export async function ask(
   const result = executed.result;
 
   // -------------------------------------------------------------- narrate
-  const narration = await narrate(result);
-  if (narration.source === "template" && llmAvailable()) {
+  const narration = llmAllowed
+    ? await narrate(result)
+    : { summary: templateSummary(result), source: "template" as const, latencyMs: 0 };
+  if (narration.source === "template" && llmAllowed) {
     degradedReasons.push("narrator_unavailable");
   }
 

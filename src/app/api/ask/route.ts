@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSnapshot } from "@/lib/snapshot";
 import { ask, QuestionError, MAX_QUESTION_LENGTH } from "@/lib/ask";
+import { readAiPreference } from "@/lib/llm/aiPreference";
 
 export const runtime = "nodejs";
 /** Never statically cached: the answer depends on in-memory state. */
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
   try {
     const answer = await ask(getSnapshot(), parsed.data.question, {
       skipCache: parsed.data.skipCache,
+      useLlm: (await readAiPreference()) === "on",
     });
     return NextResponse.json(answer);
   } catch (err) {

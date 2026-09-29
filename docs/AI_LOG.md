@@ -462,6 +462,25 @@ make state shared across serverless *instances*; that still needs Postgres
 and remains the documented next step. What it fixes is the worse problem of
 one instance disagreeing with itself.
 
+**And the fix was only half right.** Moving the AI switch to `globalThis`
+made it consistent locally — one process, one object — and it still failed
+on Vercel, where every request can land on a *different lambda instance*.
+Routing changed while the pages reporting the state disagreed, which is the
+same bug with a longer fuse.
+
+There is no server-side answer to this without shared storage. The switch
+now travels on a cookie: carried by every request from that browser,
+deterministic on any number of instances, surviving cold starts. The trade
+is real and stated in the panel — it turns the model off **for that
+browser**, not for every visitor — and environment-wide would need the same
+Postgres/KV step the snapshot needs. The snapshot stays on `globalThis`,
+where per-instance is merely a limitation rather than a lie.
+
+The cache key gained the mode for the same reason: an answer produced with
+the model carries model-written prose and `degraded: false`, and serving it
+to someone who switched the model off would show fluent text with no badge
+while claiming the model was not used.
+
 **The lesson.** The bug was invisible to every test because each test
 exercised one surface. The upload tests asserted the upload response; the
 home-page tests asserted the home page; neither crossed the boundary where

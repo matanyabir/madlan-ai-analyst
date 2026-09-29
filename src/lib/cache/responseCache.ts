@@ -43,9 +43,21 @@ export function normalizeQuestion(q: string): string {
     .replace(/[?!.,،]+$/u, "");
 }
 
-export function cacheKey(question: string, snapshotVersion: string): string {
+/**
+ * The mode is part of the key, not a detail.
+ *
+ * An answer produced with the model carries model-written prose and
+ * `degraded: false`. Serving it to someone who switched the model off would
+ * show them fluent text and no badge while claiming the model was not used.
+ * The numbers would be right and the provenance would be a lie.
+ */
+export function cacheKey(
+  question: string,
+  snapshotVersion: string,
+  mode: "llm" | "deterministic" = "llm",
+): string {
   return createHash("sha256")
-    .update(`${snapshotVersion} ${normalizeQuestion(question)}`)
+    .update(`${snapshotVersion} ${mode} ${normalizeQuestion(question)}`)
     .digest("hex")
     .slice(0, 32);
 }

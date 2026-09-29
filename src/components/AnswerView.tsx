@@ -96,6 +96,7 @@ export function AnswerView({ answer }: { answer: AskAnswer }) {
 
 const DEGRADED_COPY: Record<string, string> = {
   no_api_key: "מנוע השפה אינו מוגדר",
+  ai_disabled: "מנוע השפה כובה ידנית",
   router_timeout: "מנוע השפה לא הגיב בזמן",
   router_error: "מנוע השפה החזיר שגיאה",
   router_no_tool_call: "מנוע השפה לא בחר ניתוח",

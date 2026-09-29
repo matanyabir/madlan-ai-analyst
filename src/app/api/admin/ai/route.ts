@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { guardApi } from "@/lib/auth/guard";
-import { isAiEnabled, setAiEnabled, llmKeyConfigured } from "@/lib/llm/client";
-import { cacheClear, cacheStats } from "@/lib/cache/responseCache";
+import { llmAvailable } from "@/lib/llm/client";
+import { AI_COOKIE, readAiPreference } from "@/lib/llm/aiPreference";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,9 +13,8 @@ export async function GET() {
   const denied = await guardApi("admin");
   if (denied) return denied;
   return NextResponse.json({
-    enabled: isAiEnabled(),
-    keyConfigured: llmKeyConfigured(),
-    cache: cacheStats(),
+    enabled: (await readAiPreference()) === "on",
+    keyConfigured: llmAvailable(),
   });
 }
 
@@ -35,18 +34,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "ערך לא תקין" }, { status: 400 });
   }
 
-  const enabled = setAiEnabled(parsed.data.enabled);
+  const { enabled } = parsed.data;
+  const response = NextResponse.json({ enabled, keyConfigured: llmAvailable() });
 
   /*
-   * Flushing the cache is not optional here.
+   * The preference rides on the request rather than living on the server.
    *
-   * Cached answers carry the prose that produced them and a `degraded` flag.
-   * Leaving them in place after a toggle would serve model-written
-   * explanations while the model is off — and templated ones after it comes
-   * back — so the badge would be lying about the answer the user is looking
-   * at. The numbers would still be right; the provenance would not.
+   * Vercel runs many instances and globalThis is per-instance, so a
+   * server-side flag written by one request is invisible to the next: the
+   * routing would change while the pages showing the state disagreed. A
+   * cookie is deterministic on any number of instances and survives cold
+   * starts. Not httpOnly — the browser never reads it, but there is nothing
+   * to protect either, and leaving it readable makes debugging obvious.
    */
-  cacheClear();
+  if (enabled) {
+    response.cookies.set(AI_COOKIE, "", { path: "/", maxAge: 0 });
+  } else {
+    response.cookies.set(AI_COOKIE, "off", {
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 30,
+    });
+  }
 
-  return NextResponse.json({ enabled, keyConfigured: llmKeyConfigured() });
+  return response;
 }

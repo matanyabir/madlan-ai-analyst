@@ -1,12 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { serverState } from "./serverState";
 import { getSnapshot, setSnapshot, resetSnapshot, snapshotOrigin } from "./snapshot";
-import { isAiEnabled, setAiEnabled } from "./llm/client";
 
-beforeEach(() => {
-  resetSnapshot();
-  setAiEnabled(true);
-});
+
+beforeEach(resetSnapshot);
 
 /**
  * Regression guard for a bug that made the switch work while the panel
@@ -23,16 +20,6 @@ describe("shared server state", () => {
     const viaGlobal = (globalThis as Record<symbol, unknown>)[Symbol.for("madlan.serverState")];
     // A second module graph resolves the same symbol and gets this object.
     expect(viaGlobal).toBe(viaModule);
-  });
-
-  it("routes the AI toggle through it", () => {
-    setAiEnabled(false);
-    expect(serverState().aiEnabled).toBe(false);
-    expect(isAiEnabled()).toBe(false);
-
-    // A reader that only has the shared object sees the same answer.
-    serverState().aiEnabled = true;
-    expect(isAiEnabled()).toBe(true);
   });
 
   it("routes the snapshot through it", () => {

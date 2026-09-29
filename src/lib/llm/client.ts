@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { serverState } from "@/lib/serverState";
 
 /**
  * Claude Haiku 4.5.
@@ -55,41 +54,10 @@ export const NARRATOR_MAX_TOKENS = 700;
 export const ROUTER_TIMEOUT_MS = Number(process.env.LLM_ROUTER_TIMEOUT_MS ?? 6000);
 export const NARRATOR_TIMEOUT_MS = Number(process.env.LLM_NARRATOR_TIMEOUT_MS ?? 6000);
 
-/**
- * Runtime kill switch for the model, toggled by an admin.
- *
- * Instance-local and in-memory, exactly like the snapshot: it does not
- * survive a cold start and does not reach other instances. That is the same
- * honest limitation, and the admin UI says so.
- *
- * It exists for two reasons. Operationally it is the lever you want when the
- * model is misbehaving or burning budget and you do not want to redeploy to
- * stop it. For a demo it lets someone switch the LLM off and watch the same
- * questions still get answered by the deterministic path — which is easier
- * to believe than a paragraph claiming it works.
- */
-export function isAiEnabled(): boolean {
-  // On globalThis rather than a module-level `let` — the admin page is a
-  // Server Component and the toggle endpoint is a Route Handler, and those
-  // are separate module graphs. A plain variable makes the switch work while
-  // the panel shows the opposite state.
-  return serverState().aiEnabled;
-}
-
-/** Returns the new state. */
-export function setAiEnabled(next: boolean): boolean {
-  serverState().aiEnabled = next;
-  return next;
-}
-
 let client: Anthropic | null = null;
 
-/**
- * Null when no key is configured, or when an admin has switched the model
- * off — the app then runs entirely deterministically.
- */
+/** Null when no key is configured — the app then runs entirely deterministically. */
 export function getClient(): Anthropic | null {
-  if (!isAiEnabled()) return null;
   if (!process.env.ANTHROPIC_API_KEY) return null;
   client ??= new Anthropic({
     // One retry, and only for the transient classes. A schema failure is not
@@ -99,14 +67,16 @@ export function getClient(): Anthropic | null {
   return client;
 }
 
+/**
+ * True when the server can reach the model at all. Whether a given request
+ * *should* use it is a separate question answered per-request by the
+ * caller's cookie — see lib/llm/aiPreference.ts.
+ */
 export function llmAvailable(): boolean {
-  return isAiEnabled() && Boolean(process.env.ANTHROPIC_API_KEY);
-}
-
-/** True when a key exists but an admin has turned the model off. */
-export function llmKeyConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
+
+export const llmKeyConfigured = llmAvailable;
 
 /** Errors worth one retry. Anything else fails straight to the fallback. */
 export function isTransient(err: unknown): boolean {

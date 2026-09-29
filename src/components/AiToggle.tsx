@@ -36,8 +36,14 @@ export function AiToggle({
         body: JSON.stringify({ enabled: next }),
       });
       const body = await res.json();
-      if (!res.ok) setError(body.error ?? "השינוי נכשל");
-      else setEnabled(body.enabled);
+      if (!res.ok) {
+        setError(body.error ?? "השינוי נכשל");
+        return;
+      }
+      setEnabled(body.enabled);
+      // Server-rendered pages read this from the cookie, so they must be
+      // re-fetched rather than served from the client router cache.
+      window.location.reload();
     } catch {
       setError("לא הצלחנו לעדכן את ההגדרה");
     } finally {
@@ -107,7 +113,9 @@ export function AiToggle({
           {busy ? "מעדכן..." : enabled ? "מנוע שפה פעיל" : "מנוע שפה כבוי"}
         </span>
         <span className="text-subtle">
-          ההגדרה חלה על שרת זה בלבד ואינה שורדת הפעלה מחדש. מטמון התשובות אופס.
+          ההגדרה נשמרת בדפדפן זה ומלווה כל בקשה ממנו. היא אינה משפיעה על
+          משתמשים אחרים — הגדרה כלל-סביבתית דורשת אחסון משותף, כמו בסיס הנתונים
+          שמתועד כשלב הבא.
         </span>
       </p>
 

@@ -124,10 +124,13 @@ test.describe("the AI kill switch", () => {
     expect(status).toBe(400);
   });
 
-  test("the home page badge agrees with the switch", async ({ page }) => {
-    // Regression: the toggle worked while the admin panel and the home page
-    // both kept showing the previous state, because each module graph had
-    // its own copy of the flag.
+  test("the preference survives navigating away and back", async ({ page }) => {
+    /*
+     * The reported bug: turn it off, navigate away, come back, it is on
+     * again. A server-side flag cannot work — globalThis is per serverless
+     * instance, so the next request may land somewhere that never saw the
+     * write. The preference rides on a cookie instead.
+     */
     await page.evaluate(async () => {
       await fetch("/api/admin/ai", {
         method: "POST",
@@ -140,10 +143,35 @@ test.describe("the AI kill switch", () => {
     await expect(page.getByTestId("ai-status-badge")).toHaveAttribute("data-enabled", "false");
 
     await page.goto("/admin");
-    const button = page.getByTestId("ai-toggle-button");
-    if (await button.count()) {
-      await expect(button).toHaveAttribute("data-enabled", "false");
-    }
+    await page.goto("/");
+    await page.goto("/admin");
+    // Still off after bouncing between pages.
+    const state = await page.evaluate(async () => {
+      const r = await fetch("/api/admin/ai");
+      return (await r.json()).enabled;
+    });
+    expect(state).toBe(false);
+  });
+
+  test("turning it back on clears the preference", async ({ page }) => {
+    const set = async (enabled: boolean) =>
+      page.evaluate(async (v) => {
+        const r = await fetch("/api/admin/ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: v }),
+        });
+        return (await r.json()).enabled;
+      }, enabled);
+
+    expect(await set(false)).toBe(false);
+    expect(await set(true)).toBe(true);
+
+    await page.goto("/");
+    // No key on the e2e server, so the badge is off either way -- what
+    // matters is that the stored preference is gone.
+    const cookies = await page.context().cookies();
+    expect(cookies.find((c) => c.name === "madlan_ai")?.value ?? "").not.toBe("off");
   });
 
   test("turning it off still answers every question", async ({ page }) => {

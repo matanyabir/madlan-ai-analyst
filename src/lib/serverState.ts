@@ -3,6 +3,11 @@ import type { Snapshot } from "@/lib/types";
 /**
  * Mutable server state, shared across module instances.
  *
+ * Only the active snapshot lives here. The model on/off switch deliberately
+ * does not: globalThis is per serverless *instance*, so a flag written by one
+ * request is invisible to the next, and the switch appeared to reset itself.
+ * That preference travels on the request instead — see lib/llm/aiPreference.ts.
+ *
  * Next bundles Server Components and Route Handlers into **separate module
  * graphs**, so a module-level `let` is not one variable — each graph gets its
  * own copy. That makes the obvious implementation silently wrong in a way
@@ -26,7 +31,6 @@ interface ServerState {
   /** Null until something replaces the committed snapshot at runtime. */
   snapshot: Snapshot | null;
   uploadedAt: string | null;
-  aiEnabled: boolean;
 }
 
 const KEY = Symbol.for("madlan.serverState");
@@ -35,6 +39,6 @@ type GlobalWithState = typeof globalThis & { [KEY]?: ServerState };
 
 export function serverState(): ServerState {
   const g = globalThis as GlobalWithState;
-  g[KEY] ??= { snapshot: null, uploadedAt: null, aiEnabled: true };
+  g[KEY] ??= { snapshot: null, uploadedAt: null };
   return g[KEY];
 }

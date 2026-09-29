@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/guard";
 import { getSnapshot, snapshotOrigin } from "@/lib/snapshot";
-import { isAiEnabled, llmKeyConfigured } from "@/lib/llm/client";
+import { llmAvailable } from "@/lib/llm/client";
+import { readAiPreference } from "@/lib/llm/aiPreference";
 import { AdminUpload } from "@/components/AdminUpload";
 import { AiToggle } from "@/components/AiToggle";
 import { LogoutButton } from "@/components/LogoutButton";
@@ -27,6 +28,7 @@ export default async function AdminPage() {
 
   const snapshot = getSnapshot();
   const origin = snapshotOrigin();
+  const aiEnabled = (await readAiPreference()) === "on";
 
   return (
     <>
@@ -60,7 +62,7 @@ export default async function AdminPage() {
       </header>
 
       <main className="mx-auto w-full max-w-5xl flex-1 space-y-8 px-4 py-6 sm:px-6">
-        <AiToggle initialEnabled={isAiEnabled()} keyConfigured={llmKeyConfigured()} />
+        <AiToggle initialEnabled={aiEnabled} keyConfigured={llmAvailable()} />
         <AdminUpload currentVersion={snapshot.version} />
       </main>
     </>

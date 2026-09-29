@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { getSnapshot, snapshotOrigin } from "@/lib/snapshot";
 import { cacheStats } from "@/lib/cache/responseCache";
 import {
-  llmAvailable, llmKeyConfigured, isAiEnabled,
-  ROUTER_MODEL, NARRATOR_MODEL, CANONICALIZER_MODEL,
+  llmAvailable, ROUTER_MODEL, NARRATOR_MODEL, CANONICALIZER_MODEL,
 } from "@/lib/llm/client";
+import { readAiPreference } from "@/lib/llm/aiPreference";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,8 +23,8 @@ export async function GET() {
     },
     llm: {
       configured: llmAvailable(),
-      keyConfigured: llmKeyConfigured(),
-      enabledByAdmin: isAiEnabled(),
+      // Per-caller, from the cookie this request carried.
+      enabledForThisCaller: (await readAiPreference()) === "on",
       models: {
         router: ROUTER_MODEL,
         narrator: NARRATOR_MODEL,

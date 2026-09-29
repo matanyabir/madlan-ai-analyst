@@ -3,6 +3,7 @@ import { getSnapshot } from "@/lib/snapshot";
 import { Analyst } from "@/components/Analyst";
 import { AiStatusBadge } from "@/components/AiStatusBadge";
 import { llmAvailable } from "@/lib/llm/client";
+import { readAiPreference } from "@/lib/llm/aiPreference";
 import { formatCount, formatRange } from "@/components/format";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +16,10 @@ export const dynamic = "force-dynamic";
  * are the real ones from the pipeline, not copy — if an admin uploads a new
  * file, this header changes with it.
  */
-export default function Home() {
+export default async function Home() {
   const snapshot = getSnapshot();
   const { counts, dateRange } = snapshot;
+  const aiOn = llmAvailable() && (await readAiPreference()) === "on";
 
   return (
     <>
@@ -34,7 +36,7 @@ export default function Home() {
               </p>
             </div>
             <nav className="flex shrink-0 items-center gap-3 text-sm">
-              <AiStatusBadge enabled={llmAvailable()} />
+              <AiStatusBadge enabled={aiOn} />
               <Link href="/browse" className="text-accent hover:underline">עיון</Link>
               <Link href="/admin" className="text-muted hover:underline">ניהול</Link>
             </nav>
