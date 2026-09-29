@@ -7,10 +7,13 @@ const ADMIN = { email: "admin@madlan.test", password: "admin-e2e-password" };
 const USER = { email: "user@madlan.test", password: "user-e2e-password" };
 
 /**
- * Logs in and waits for the session cookie to actually be set.
+ * Logs in and waits for the whole flow to settle.
  *
- * Clicking and returning immediately races the request: the next goto can
- * fire before Set-Cookie lands, which looks exactly like a broken guard.
+ * Two waits, for two different races:
+ *   - the response, because returning before Set-Cookie lands looks exactly
+ *     like a broken guard;
+ *   - the navigation away from /login, because a successful sign-in does a
+ *     full page load, and acting during it destroys the execution context.
  */
 async function login(
   page: import("@playwright/test").Page,
@@ -24,6 +27,11 @@ async function login(
     page.waitForResponse((r) => r.url().includes("/api/auth/login")),
     page.getByTestId("login-submit").click(),
   ]);
+
+  if (response.ok()) {
+    await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 15_000 });
+    await page.waitForLoadState("load");
+  }
   return response.status();
 }
 
@@ -74,8 +82,8 @@ test.describe("access control", () => {
 
 test.describe("the admin upload", () => {
   test.beforeEach(async ({ page }) => {
+    // login() already lands on /admin; no second navigation needed.
     expect(await login(page, ADMIN)).toBe(200);
-    await page.goto("/admin");
     await expect(page.getByRole("heading", { name: "ניהול נתונים" })).toBeVisible();
   });
 
