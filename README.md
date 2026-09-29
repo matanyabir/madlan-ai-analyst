@@ -225,6 +225,24 @@ is unavoidable — is the architecture this was built toward.
 
 ### 2. Replace the in-memory snapshot with Postgres
 
+**Why there is data before anyone uploads anything.** `data/snapshot.json` is
+built from the CSV by `npm run build:snapshot` and **committed**, then
+imported by `src/lib/snapshot.ts` at module load. A cold start therefore has
+505 analysable deals immediately, with no I/O and no upload.
+
+That is a deliberate departure from the obvious design, where the admin
+upload is the gate that fills an empty database. Without a database, making
+upload the gate would mean the public URL is dead after every cold start
+until someone logs in and uploads again — a bad property for a link someone
+else is going to open. So the upload is a *replacement* path rather than the
+only path: it runs the identical pipeline, produces the full issue log, and
+swaps the active dataset on that instance. The admin header always states
+which source is live, *"קובץ מקובע במאגר הקוד"* or *"הועלה בזמן ריצה"*.
+
+With Postgres the distinction disappears: the upload writes, everything
+reads, and the seed is just the first write.
+
+
 `data/snapshot.json` is committed and imported, so a cold start always has
 good data with no I/O. At 530 rows this is honest engineering rather than a
 shortcut; somewhere around 10⁵ rows it stops being true.
