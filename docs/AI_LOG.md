@@ -2,11 +2,12 @@
 
 The brief asks for a short log of how this was built with AI assistance,
 "including at least one time it gave you a bad answer and you caught it".
-There are seven, and they are recorded as they happened rather than
-reconstructed at the end. The three worth reading are #5, where the bad
+There are eight, and they are recorded as they happened rather than
+reconstructed at the end. The four worth reading are #5, where the bad
 answer came from a tool I had written an hour earlier; #6, where correct
-code produced a false statement; and #7, which a full green test suite could
-not have caught.
+code produced a false statement; #7, which a full green test suite could not
+have caught; and #8, a UI annoyance that turned out to be putting the
+password in the URL.
 
 ## Tools
 
@@ -263,6 +264,54 @@ structured value in a file with its own grammar.
 I found it in the last ten minutes of the build, by running my own setup
 instructions. That is the cheapest integration test there is and I had not
 run it until then.
+
+## Bad answer #8 — a login form that leaked the password into the URL
+
+**What happened.** On `http://127.0.0.1:3000` in development, submitting the
+login form did nothing visible — the page stayed put. The address bar showed
+why:
+
+```
+GET /login?email=admin%40madlan.local&password=admin123
+```
+
+**Two distinct defects, one symptom.**
+
+*Dev-only:* Next's dev server serves its client bundle and HMR socket to
+`localhost` only. On `127.0.0.1` the page renders server-side and **never
+hydrates** — every interactive element is inert while looking completely
+normal. Fixed with `allowedDevOrigins` in `next.config.ts`.
+
+*Not dev-only, and the serious one:* my `<form>` had an `onSubmit` handler
+and **no `action` or `method`**. That is fine right up until the handler is
+not attached — pre-hydration, hydration failure, a JS error, a slow
+connection — at which point the browser uses its default, which is a **GET
+to the current URL with every field in the query string**. The password
+lands in the address bar, in browser history, and in every server access
+log. Failed hydration was what exposed it here; it was latent in production
+too.
+
+**Fix.** `action="/api/auth/login" method="post"`, and the route handler now
+detects a form-encoded body and answers with a 303 instead of JSON. The
+pre-hydration path is no longer merely non-leaky — it is a working login.
+There are e2e tests that run with `javaScriptEnabled: false` and assert both
+that no credential appears in the URL and that the login actually succeeds.
+
+**A third bug fell out of fixing the second.** The redirect was built with
+`NextResponse.redirect(new URL(dest, request.url))`. `request.url` uses
+Next's internally resolved host, not the `Host` the client sent — so a
+visitor on `127.0.0.1` was redirected to `localhost`, a *different origin*,
+and the session cookie just set for `127.0.0.1` was not sent with the
+follow-up. The login silently bounced back to the form. The redirect is now
+a relative `Location`, which keeps the browser on whatever origin it was
+already using.
+
+**The lesson.** Two of these three are the same mistake in different
+clothing: assuming the happy path is the only path. A `<form>` has default
+behaviour whether or not you want it, and `request.url` has a host whether
+or not it is the right one. Progressive enhancement is not nostalgia here —
+it is what decides whether a hydration failure is a cosmetic glitch or a
+credential disclosure.
 
 ## Smaller ones, recorded for completeness
 

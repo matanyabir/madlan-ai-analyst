@@ -7,7 +7,7 @@ on.
 
 **Live:** _(deployed URL)_
 **Stack:** Next.js 16 · TypeScript · Tailwind 4 · Recharts · Claude Haiku 4.5
-**Tests:** 238 unit (Vitest) · 34 end-to-end (Playwright)
+**Tests:** 238 unit (Vitest) · 39 end-to-end (Playwright)
 
 ---
 
@@ -277,7 +277,7 @@ which is the fastest way to see the fallback behaviour.
 
 ```bash
 npm test              # 238 unit tests
-npm run test:e2e      # 34 end-to-end
+npm run test:e2e      # 39 end-to-end
 npm run typecheck
 npm run profile           # regenerate docs/CSV_PROFILE.md
 npm run build:snapshot    # rebuild data/snapshot.json from the CSV

@@ -10,7 +10,9 @@ export function LoginForm() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    params.get("error") ? "אימייל או סיסמה שגויים" : null,
+  );
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -29,7 +31,8 @@ export function LoginForm() {
         return;
       }
       // Replace so Back does not land on the login form post-login.
-      router.replace(body.role === "admin" ? next : "/");
+      // The destination is the one the server vetted, not the raw ?next.
+      router.replace(body.next ?? (body.role === "admin" ? "/admin" : "/"));
       router.refresh();
     } catch {
       setError("לא הצלחנו להתחבר לשרת");
@@ -39,11 +42,31 @@ export function LoginForm() {
   }
 
   return (
+    /*
+     * action and method are the no-JavaScript fallback, and they are not
+     * optional decoration.
+     *
+     * A <form> with neither one submits as a GET to the current URL, which
+     * serialises the fields into the query string -- putting the password in
+     * the address bar, in browser history and in server access logs. That is
+     * exactly what happens whenever hydration has not completed: the React
+     * onSubmit handler is not attached yet and the browser uses its default.
+     *
+     * Pointing the form at the real endpoint with method="post" means the
+     * pre-hydration path is a working login rather than a credential leak.
+     * The route handler detects a form-encoded body and answers with a
+     * redirect instead of JSON.
+     */
     <form
+      action="/api/auth/login"
+      method="post"
       onSubmit={submit}
       className="mt-6 space-y-4 rounded-2xl border border-border bg-surface p-5"
       data-testid="login-form"
     >
+      {/* Carries the return path through a no-JS submit. */}
+      <input type="hidden" name="next" value={next} />
+
       <div>
         <label htmlFor="email" className="block text-sm font-medium">
           אימייל
