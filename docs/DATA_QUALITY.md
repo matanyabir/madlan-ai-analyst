@@ -13,7 +13,7 @@ aggregates with a reason the UI can show.
 
 ---
 
-## 1. City names — 29 spellings for 15 cities
+## 1. City names — 29 spellings for 18 cities
 
 | Canonical | Raw spellings found |
 |---|---|
@@ -22,6 +22,9 @@ aggregates with a reason the UI can show.
 | `ירושלים` | `ירושלים` ×10, `ירושלים ` ×8, `Jerusalem` ×3 |
 | `בית שמש` | `בית שמש` ×21, `בית-שמש` ×7 |
 | `מודיעין-מכבים-רעות` | `מודיעין` ×13, `מודיעין מכבים רעות` ×12, `מודיעין-מכבים-רעות` ×11 |
+
+Thirteen further cities appear under a single spelling each; the table lists
+them too, so the canonical set is explicit and closed.
 
 **Decision:** a committed alias table maps every raw spelling to one canonical
 Hebrew name. Two Latin-script spellings (`Tel Aviv-Yafo`, `Jerusalem`) map to
