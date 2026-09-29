@@ -102,6 +102,7 @@ const DEGRADED_COPY: Record<string, string> = {
   router_no_tool_call: "מנוע השפה לא בחר ניתוח",
   router_invalid_arguments: "מנוע השפה החזיר פרמטרים שלא עברו אימות",
   narrator_unavailable: "ההסבר המילולי נוצר מתבנית קבועה",
+  budget_exhausted: "תקציב מנוע השפה להיום נוצל",
 };
 
 /**

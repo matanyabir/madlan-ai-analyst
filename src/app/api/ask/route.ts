@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getSnapshot } from "@/lib/snapshot";
 import { ask, QuestionError, MAX_QUESTION_LENGTH } from "@/lib/ask";
 import { readAiPreference } from "@/lib/llm/aiPreference";
+import { checkRate, clientKey, takeLlmQuestion } from "@/lib/llm/budget";
 
 export const runtime = "nodejs";
 /** Never statically cached: the answer depends on in-memory state. */
@@ -14,6 +15,17 @@ const Body = z.object({
 });
 
 export async function POST(request: Request) {
+  // Before anything that costs money or memory. A caller in a loop is turned
+  // away here; a caller within the burst but past the day's allowance is not
+  // turned away at all — see the two guards in lib/llm/budget.ts.
+  const rate = checkRate(clientKey(request));
+  if (!rate.ok) {
+    return NextResponse.json(
+      { error: "יותר מדי שאלות בזמן קצר. נסו שוב בעוד רגע." },
+      { status: 429, headers: { "retry-after": String(rate.retryAfterSeconds) } },
+    );
+  }
+
   let payload: unknown;
   try {
     payload = await request.json();
@@ -33,6 +45,7 @@ export async function POST(request: Request) {
     const answer = await ask(getSnapshot(), parsed.data.question, {
       skipCache: parsed.data.skipCache,
       useLlm: (await readAiPreference()) === "on",
+      takeBudget: takeLlmQuestion,
     });
     return NextResponse.json(answer);
   } catch (err) {

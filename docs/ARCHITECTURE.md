@@ -12,9 +12,15 @@ has the reasoning; this has the diagram and the file-level map.
         ▼           │   ┌────────────────────────────────┐     │
   ┌──────────┐      │   │  /api/ask   (lib/ask.ts)       │     │
   │  React   │─────►│   │                                │     │
-  │  client  │      │   │  1. response cache  ──hit──────┼─────┼──▶ answer
-  └──────────┘      │   │         │ miss                 │     │     0 calls
+  │  client  │      │   │  0. per-IP bucket ──over──▶ 429│     │
+  └──────────┘      │   │         │                      │     │
         ▲           │   │         ▼                      │     │
+        │           │   │  1. response cache  ──hit──────┼─────┼──▶ answer
+        │           │   │         │ miss                 │     │     0 calls
+        │           │   │         ▼                      │     │
+        │           │   │  1b. daily budget              │     │
+        │           │   │         │ spent ──▶ skip 2 & 5 │     │
+        │           │   │         ▼         (no LLM cost)│     │
         │           │   │  2. router ────────────────────┼─────┼──▶ Claude
         │           │   │         │                      │     │    Haiku 4.5
         │           │   │         │  fail ──▶ regex      │     │    7 tools
@@ -52,7 +58,9 @@ result, decline.
 
 **The model may not:** see a transaction row, compute anything, name a value
 outside the schema enums, choose which deals are similar, decide what counts
-as an anomaly, or emit markup.
+as an anomaly, emit markup, or be reached at all once the day's allowance is
+spent — at which point step 2 and step 5 are simply skipped and the
+deterministic path answers the same question from the same evidence.
 
 ## Data flow at build time
 
@@ -90,6 +98,7 @@ madlan_deals_sample.csv
 | `lib/llm/narrator.ts` | Call 2 + the template fallback. |
 | `lib/llm/fallbackRouter.ts` | The no-model router. |
 | `lib/llm/provider.ts` | The Jev seam. |
+| `lib/llm/budget.ts` | Per-IP rate limit + the daily spend ceiling. |
 | `lib/ask.ts` | The request path, end to end. |
 | `proxy.ts` | Optimistic redirect only. Not the auth boundary. |
 | `lib/auth/guard.ts` | The actual auth boundary. |

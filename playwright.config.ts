@@ -45,6 +45,14 @@ export default defineConfig({
           // model, which is how constraint 6 ("survive the model being
           // unavailable") gets tested rather than asserted.
           ANTHROPIC_API_KEY: "",
+          // Nothing sits in front of this server, so every browser-driven
+          // request shares one rate-limit bucket. Real traffic does not: the
+          // limiter keys on x-forwarded-for, which Vercel's edge sets per
+          // client. Widened here so the suite tests the product rather than
+          // the limiter, and budget.spec.ts claims its own client identity to
+          // test the limiter directly.
+          ASK_RATE_BURST: "40",
+          ASK_RATE_PER_MINUTE: "600",
         },
       },
 });

@@ -181,6 +181,35 @@ a warm prompt cache:
 Ingestion is excluded because it is effectively free: uploading the sample
 CSV makes **zero** API calls, since all 530 rows resolve deterministically.
 
+### Knowing the cost is not the same as bounding it
+
+`/api/ask` is public — the brief asks for a URL anyone can open — so the table
+above describes what the traffic *should* cost, and on its own nothing stops a
+loop or a crawler from spending more. Two guards sit in front of it
+(`lib/llm/budget.ts`), and they fail differently on purpose:
+
+| Guard | Limit | Over it |
+|---|---|---|
+| Per-IP token bucket | 12 burst, 20/min | **429**, with `Retry-After` |
+| Daily model allowance | 4,000 questions/UTC day | **Not an error** — deterministic router + template narrator |
+
+The second one is the interesting half. Running out of money is
+operationally identical to the model being unavailable, and that path already
+exists, is already tested, and already tells the user the explanation is
+templated. So the ceiling costs nothing to enforce: past it, the site keeps
+answering the same questions from the same evidence at ~1ms and $0. The
+default of 4,000 is the conservative row above, held as a limit rather than a
+projection — about $18.65/day.
+
+`LLM_DAILY_QUESTION_BUDGET=0` is also the kill switch without a redeploy.
+
+**The honest limitation:** this counter is per serverless instance, for the
+same reason the response cache is — `globalThis` is not shared across
+instances. N instances permit N × the allowance. That makes the bound
+approximate rather than exact, which is still categorically different from
+absent, and the fix is the same shared-storage step the cache needs. Both
+counters are on `/api/health`.
+
 ### The thing I got wrong, and what it taught me
 
 An earlier version of this section estimated $9.60/day from a guessed
@@ -205,7 +234,8 @@ matching transactions" rather than inventing any. Cities stay enumerated —
    with output free. It removes the larger of the two calls.
 2. **Redis instead of the in-process LRU.** Each instance currently has its
    own cache, so the real hit rate is divided by the instance count. A shared
-   cache is what moves 60% toward 80%, which halves the bill.
+   cache is what moves 60% toward 80%, which halves the bill — and the same
+   store makes the daily spend ceiling exact instead of per-instance.
 3. **Trim the prefix further.** The filter object is repeated across five
    tools. Collapsing the analysis tools into one with an `operation` enum
    would cut the cached prefix by roughly another half.
@@ -248,6 +278,8 @@ not survive a cold start; the panel says so.
 | Router names a nonexistent tool | Same |
 | Narrator fails or truncates | Template narrator, same evidence object |
 | Rate limit / 5xx | One retry, then fall back. Schema failures are never retried. |
+| Daily budget spent | Deterministic path, flagged `budget_exhausted`. No error. |
+| One IP flooding `/api/ask` | 429 with `Retry-After`, before any cost is incurred |
 | Everything down | `/browse` — server-rendered filters, no client bundle |
 
 Degraded answers are **not cached**, so recovery restores the better prose.
@@ -356,6 +388,7 @@ npx vercel env add ADMIN_PASSWORD_HASH production   # npm run hash-password
 npx vercel env add USER_EMAIL production
 npx vercel env add USER_PASSWORD_HASH production
 npx vercel env add ANTHROPIC_API_KEY production     # optional
+npx vercel env add LLM_DAILY_QUESTION_BUDGET production   # optional, default 4000
 npx vercel --prod
 ```
 

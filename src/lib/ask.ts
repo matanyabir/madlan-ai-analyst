@@ -25,7 +25,8 @@ export type DegradedReason =
   | "router_error"
   | "router_no_tool_call"
   | "router_invalid_arguments"
-  | "narrator_unavailable";
+  | "narrator_unavailable"
+  | "budget_exhausted";
 
 export interface AskAnswer {
   question: string;
@@ -64,6 +65,13 @@ export interface AskOptions {
    * global state cannot work across serverless instances.
    */
   useLlm?: boolean;
+  /**
+   * Spends one question from the day's model budget, returning false when the
+   * allowance is gone. Called only after the cache misses, so a cached answer
+   * is free in every sense. Absent — tests, the admin preview — means no
+   * ceiling applies.
+   */
+  takeBudget?: () => boolean;
 }
 
 export async function ask(
@@ -79,8 +87,13 @@ export async function ask(
     throw new QuestionError(`השאלה ארוכה מדי — עד ${MAX_QUESTION_LENGTH} תווים`);
   }
 
-  const llmAllowed = (options.useLlm ?? true) && llmAvailable();
-  const key = cacheKey(question, snapshot.version, llmAllowed ? "llm" : "deterministic");
+  // What this caller is entitled to ask for, before the day's budget is
+  // consulted. The cache key is built from this rather than from the eventual
+  // outcome, and that is safe in the one direction that matters: a
+  // budget-exhausted answer is degraded, degraded answers are never cached, so
+  // the "llm" key can only ever hold prose the model actually wrote.
+  const llmWanted = (options.useLlm ?? true) && llmAvailable();
+  const key = cacheKey(question, snapshot.version, llmWanted ? "llm" : "deterministic");
   if (!options.skipCache) {
     const hit = cacheGet<AskAnswer>(key);
     if (hit) {
@@ -90,13 +103,20 @@ export async function ask(
 
   const degradedReasons: DegradedReason[] = [];
 
+  // Charged here, past the cache, so repeat questions cost nothing.
+  const llmAllowed = llmWanted && (options.takeBudget?.() ?? true);
+
   // ---------------------------------------------------------------- route
   let call = null as ReturnType<typeof fallbackRoute> | null;
   let routedBy: "llm" | "deterministic" = "deterministic";
   let routerUsage = { input: 0, output: 0, cacheRead: 0 };
 
-  if (!llmAllowed) {
+  if (!llmWanted) {
     degradedReasons.push(llmAvailable() ? "ai_disabled" : "no_api_key");
+  } else if (!llmAllowed) {
+    // The day's allowance is spent. Not an error: the deterministic path below
+    // answers the same question from the same evidence, for nothing.
+    degradedReasons.push("budget_exhausted");
   } else {
     const routed = await routeQuestion(snapshot, question);
     if (routed.ok) {

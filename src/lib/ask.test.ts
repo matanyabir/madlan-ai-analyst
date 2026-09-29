@@ -193,6 +193,75 @@ describe("caching", () => {
   });
 });
 
+describe("the daily model budget", () => {
+  /** Puts the pipeline in a fully-successful state so answers are cacheable. */
+  function stubHealthyLlm() {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-fake");
+    vi.spyOn(router, "routeQuestion").mockResolvedValue({
+      ok: true,
+      call: { name: "get_statistics", input: { filters: { city: "\u05e8\u05de\u05ea \u05d2\u05df" }, metric: "count" } },
+      usage: { inputTokens: 1300, outputTokens: 120, cacheReadTokens: 1100, cacheWriteTokens: 0 },
+      latencyMs: 200,
+    });
+    vi.spyOn(narrator, "narrate").mockResolvedValue({
+      summary: "\u05d1\u05de\u05d0\u05d2\u05e8 \u05e0\u05e8\u05e9\u05de\u05d5 29 \u05e2\u05e1\u05e7\u05d0\u05d5\u05ea \u05d1\u05e8\u05de\u05ea \u05d2\u05df.",
+      source: "llm",
+      usage: { inputTokens: 1100, outputTokens: 200, cacheReadTokens: 900, cacheWriteTokens: 0 },
+      latencyMs: 400,
+    });
+  }
+
+  const QUESTION = "\u05db\u05de\u05d4 \u05e2\u05e1\u05e7\u05d0\u05d5\u05ea \u05d9\u05e9 \u05d1\u05e8\u05de\u05ea \u05d2\u05df?";
+
+  it("answers without the model once the allowance is gone, rather than failing", async () => {
+    stubHealthyLlm();
+    const a = await ask(snap, QUESTION, { takeBudget: () => false });
+
+    // The user still gets the right answer, computed the same way.
+    expect(a.result.type).toBe("statistics");
+    expect(a.meta.routedBy).toBe("deterministic");
+    expect(a.meta.narratedBy).toBe("template");
+    expect(a.degradedReasons).toEqual(["budget_exhausted"]);
+    // And it cost nothing: neither call was made.
+    expect(router.routeQuestion).not.toHaveBeenCalled();
+    expect(narrator.narrate).not.toHaveBeenCalled();
+  });
+
+  it("charges the budget only for questions the cache could not answer", async () => {
+    stubHealthyLlm();
+    const takeBudget = vi.fn(() => true);
+
+    await ask(snap, QUESTION, { takeBudget });
+    await ask(snap, QUESTION, { takeBudget });
+
+    expect(takeBudget).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The provenance trap: a budget-exhausted answer is templated but keyed as
+   * if the model had written it. It must never reach the cache, or the next
+   * visitor would be shown template prose with no badge.
+   */
+  it("never caches a budget-exhausted answer under the model's key", async () => {
+    stubHealthyLlm();
+    const exhausted = await ask(snap, QUESTION, { takeBudget: () => false });
+    expect(exhausted.degraded).toBe(true);
+
+    const recovered = await ask(snap, QUESTION, { takeBudget: () => true });
+    expect(recovered.meta.cached).toBe(false);
+    expect(recovered.meta.narratedBy).toBe("llm");
+    expect(recovered.degraded).toBe(false);
+  });
+
+  it("leaves the budget alone when the model was already off", async () => {
+    // No API key: there is nothing to spend, so nothing should be charged.
+    const takeBudget = vi.fn(() => true);
+    const a = await ask(snap, QUESTION, { takeBudget });
+    expect(a.degradedReasons).toContain("no_api_key");
+    expect(takeBudget).not.toHaveBeenCalled();
+  });
+});
+
 describe("input validation", () => {
   it("rejects an empty question", async () => {
     await expect(ask(snap, "   ")).rejects.toThrow(QuestionError);

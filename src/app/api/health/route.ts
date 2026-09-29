@@ -5,6 +5,7 @@ import {
   llmAvailable, ROUTER_MODEL, NARRATOR_MODEL, CANONICALIZER_MODEL,
 } from "@/lib/llm/client";
 import { readAiPreference } from "@/lib/llm/aiPreference";
+import { budgetStats } from "@/lib/llm/budget";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,5 +33,6 @@ export async function GET() {
       },
     },
     cache: cacheStats(),
+    budget: budgetStats(),
   });
 }
