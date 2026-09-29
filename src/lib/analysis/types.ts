@@ -38,6 +38,8 @@ export interface SeriesPoint {
   period: string;
   value: number;
   n: number;
+  /** True when this period rests on too few deals to carry a claim. */
+  sparse: boolean;
 }
 
 export interface DealCard {
@@ -61,12 +63,16 @@ export interface DealCard {
   anomaly?: { modifiedZ: number; peerMedian: number; peerCount: number; direction: "high" | "low" };
 }
 
+export type Granularity = "month" | "quarter" | "year";
+
 export type AnalysisResult =
   | { type: "statistics"; title: string; metrics: MetricCard[]; evidence: Evidence }
   | {
       type: "timeSeries"; title: string; metricLabel: string;
       unit: MetricCard["unit"]; points: SeriesPoint[];
-      granularity: "month" | "quarter"; evidence: Evidence;
+      granularity: Granularity; evidence: Evidence;
+      /** Endpoint change, only when both ends rest on enough deals. */
+      change: { fromPeriod: string; toPeriod: string; percent: number; fromN: number; toN: number } | null;
     }
   | {
       type: "comparison"; title: string; metricLabel: string;

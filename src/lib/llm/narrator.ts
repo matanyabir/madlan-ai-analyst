@@ -29,6 +29,9 @@ const SYSTEM = `אתה אנליסט נדל"ן שכותב בעברית.
 - אסור לטעון על מצב השוק היום, על תחזיות עתידיות, על סיבתיות, על איכות
   השכונה, על כדאיות השקעה, או על כל דבר שאינו עולה ישירות מהנתונים.
 - אם התוצאה מבוססת על מעט עסקאות, ציין זאת.
+- במגמה לאורך זמן: אל תחשב שינוי באחוזים בעצמך. אם יש שדה change השתמש
+  במספר שבו בלבד וציין על כמה עסקאות הוא מבוסס. אם changeIsAvailable הוא
+  false — אמור במפורש שאין מספיק נתונים כדי לקבוע שינוי, ואל תרמוז על כיוון.
 - אם התוצאה היא עסקאות חריגות — חריגה משמעה שונות סטטיסטית מקבוצת השוואה,
   לעולם לא טעות בנתונים ולא מחיר שגוי.
 
@@ -62,13 +65,24 @@ function promptPayload(result: AnalysisResult): string {
 
   switch (result.type) {
     case "statistics": return JSON.stringify({ ...base, metrics: result.metrics });
-    case "timeSeries": return JSON.stringify({
-      ...base, metricLabel: result.metricLabel, granularity: result.granularity,
-      first: result.points[0], last: result.points.at(-1),
-      lowest: [...result.points].sort((a, b) => a.value - b.value)[0],
-      highest: [...result.points].sort((a, b) => b.value - a.value)[0],
-      pointCount: result.points.length,
-    });
+    case "timeSeries": {
+      // Only periods that clear the sample threshold are shown to the model,
+      // and the change is the one the engine vetted -- never the raw
+      // endpoints, which may each rest on a single deal.
+      const solid = result.points.filter((p) => !p.sparse);
+      return JSON.stringify({
+        ...base,
+        metricLabel: result.metricLabel,
+        granularity: result.granularity,
+        change: result.change,
+        changeIsAvailable: result.change !== null,
+        first: solid[0], last: solid.at(-1),
+        lowest: [...solid].sort((a, b) => a.value - b.value)[0],
+        highest: [...solid].sort((a, b) => b.value - a.value)[0],
+        pointCount: result.points.length,
+        sparsePointCount: result.points.length - solid.length,
+      });
+    }
     case "comparison": return JSON.stringify({ ...base, items: result.items });
     case "dealList": return JSON.stringify({
       ...base, shown: result.deals.length,
@@ -173,15 +187,21 @@ export function templateSummary(result: AnalysisResult): string {
     }
 
     case "timeSeries": {
-      const first = result.points[0];
-      const last = result.points.at(-1);
-      if (!first || !last) return basis;
-      const change = ((last.value / first.value - 1) * 100);
-      const dir = change >= 0 ? "עלייה" : "ירידה";
+      const unit = { month: "חודש", quarter: "רבעון", year: "שנה" }[result.granularity];
+      if (!result.change) {
+        // Refusing to state a change is the correct answer here, not a gap.
+        return (
+          `${basis} הנתונים מוצגים לפי ${unit}, אך אין מספיק עסקאות בתקופות ` +
+          `הקצה כדי לקבוע שינוי אמין לאורך הזמן.`
+        );
+      }
+      const { percent, fromPeriod, toPeriod, fromN, toN } = result.change;
+      const dir = percent >= 0 ? "עלייה" : "ירידה";
       return (
-        `${basis} בין ${first.period} ל${last.period} נרשמה ${dir} של ` +
-        `${Math.abs(change).toFixed(1)}% ב${result.metricLabel}, מ-${nis(first.value)} ל-${nis(last.value)}. ` +
-        `הנתונים מקובצים לפי ${result.granularity === "month" ? "חודש" : "רבעון"}.`
+        `${basis} בין ${fromPeriod} ל${toPeriod} נרשמה ${dir} של ` +
+        `${Math.abs(percent).toFixed(1)}% ב${result.metricLabel}, ` +
+        `על בסיס ${fromN} ו-${toN} עסקאות בתקופות הקצה בהתאמה. ` +
+        `הנתונים מקובצים לפי ${unit}.`
       );
     }
 

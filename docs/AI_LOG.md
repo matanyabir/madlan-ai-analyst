@@ -2,9 +2,10 @@
 
 The brief asks for a short log of how this was built with AI assistance,
 "including at least one time it gave you a bad answer and you caught it".
-There are five, and they are recorded as they happened rather than
-reconstructed at the end. The most interesting one is #5, where the bad
-answer came from a tool I had just written myself.
+There are six, and they are recorded as they happened rather than
+reconstructed at the end. The two worth reading are #5, where the bad answer
+came from a tool I had written an hour earlier, and #6, where correct code
+produced a false statement.
 
 ## Tools
 
@@ -162,6 +163,52 @@ implementations of the same parse and a test that forced them to agree. If
 the pipeline had simply trusted the profiler's summary, the app would have
 shipped with a wrong conflict count and twelve prices reconstructed from a
 derived field instead of read from the source.
+
+## Bad answer #6 — correct arithmetic, false statement
+
+**What happened.** The first working end-to-end run of the demo question
+*"איך השתנה המחיר למ״ר ברמת גן?"* produced:
+
+> בין 2021-Q3 ל-2026-Q3 נרשמה **עלייה של 67.7%** בחציון מחיר למ״ר
+
+Every number in that sentence was computed correctly. The sentence was still
+false. The first quarter held **one** transaction and the last held **one**,
+so "the median rose 67.7%" was two individual sales five years apart, dressed
+as a trend. The generated time-series code did what time-series code
+conventionally does — bucket, take the endpoints, compute the delta — and
+nothing in it was wrong.
+
+**How it was caught.** Not by a test. Every test passed. It was caught by
+running the actual demo question against the running server and reading the
+answer, which is why "inspect the UI, do not assume an AI-generated
+implementation is correct" is in the brief.
+
+**Fix**, in three parts, because one would not have been enough:
+
+1. Granularity escalates month → quarter → year until most periods clear
+   three transactions. 27 deals over five years is ~2 per quarter; the data
+   now picks its own resolution instead of the caller guessing. רמת גן is
+   yearly, the national series is still monthly.
+2. The endpoint change is computed between the first and last periods that
+   *clear* the threshold, and is `null` when fewer than two do. The answer is
+   now 52.7% between 2021 and 2026 on n=3 and n=4, and the sentence says so.
+3. Thin periods are flagged `sparse`, drawn as hollow amber dots, and
+   labelled in the tooltip. They stay on the chart — hiding them would be a
+   different lie — but they cannot anchor a claim.
+
+The narrator was changed too: it now receives only the solid points and the
+vetted `change` object, with an instruction never to compute a percentage
+itself and to state plainly when no change can be determined. There is a
+test that strips `change` and asserts the summary contains no direction word.
+
+**The lesson, and the one I would teach.** "The model must not invent
+numbers" is the easy half of grounding, and it was already solved here — the
+model never touches arithmetic. The hard half is that **deterministic code
+computing correct numbers can still produce an ungrounded claim**, because a
+claim is a number *plus* a sample size *plus* a framing. A median of one is
+arithmetically valid and epistemically empty. Guarding that required the
+analysis layer to know what it is not entitled to say, which is a different
+kind of code from the code that knows how to divide.
 
 ---
 

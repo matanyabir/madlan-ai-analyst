@@ -1,69 +1,72 @@
-import Image from "next/image";
+import { getSnapshot } from "@/lib/snapshot";
+import { Analyst } from "@/components/Analyst";
+import { formatCount, formatRange } from "@/components/format";
 
+export const dynamic = "force-dynamic";
+
+/**
+ * The analyst page.
+ *
+ * A server component that reads the snapshot for the header figures and
+ * hands the interactive part to a client component. The counts in the header
+ * are the real ones from the pipeline, not copy — if an admin uploads a new
+ * file, this header changes with it.
+ */
 export default function Home() {
+  const snapshot = getSnapshot();
+  const { counts, dateRange } = snapshot;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      <header className="border-b border-border bg-surface">
+        <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                אנליסט הנדל״ן
+              </h1>
+              <p className="mt-1.5 text-sm leading-relaxed text-muted">
+                שאלו בעברית על עסקאות שבוצעו. כל מספר בתשובה מחושב מהנתונים —
+                מודל השפה מבין את השאלה ומנסח, ולא מחשב.
+              </p>
+            </div>
+            <nav className="flex shrink-0 gap-3 text-sm">
+              <a href="/browse" className="text-accent hover:underline">עיון</a>
+              <a href="/admin" className="text-muted hover:underline">ניהול</a>
+            </nav>
+          </div>
+
+          <dl className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs">
+            <Stat label="עסקאות בניתוח">{formatCount(counts.analyzable)}</Stat>
+            <Stat label="ערים">{formatCount(snapshot.vocabulary.cities.length)}</Stat>
+            <Stat label="תקופה">{formatRange(dateRange)}</Stat>
+            <Stat label="הוצאו בניקוי">
+              {formatCount(counts.quarantined + counts.conflictRowsHeldOut)}
+            </Stat>
+          </dl>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+      </header>
+
+      <main className="flex-1">
+        <Analyst dealCount={counts.analyzable} />
       </main>
+
+      <footer className="border-t border-border bg-surface">
+        <div className="mx-auto w-full max-w-3xl px-4 py-5 text-xs leading-relaxed text-subtle sm:px-6">
+          המערכת מדווחת אך ורק על עסקאות שנמצאות במאגר זה, בתקופה שהוא מכסה.
+          אין בה מידע על מצב השוק היום, על תחזיות, או על מאפייני שכונות מעבר
+          לנתוני העסקאות עצמן.
+        </div>
+      </footer>
+    </>
+  );
+}
+
+function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-subtle">{label}</dt>
+      <dd className="tnum mt-0.5 text-sm font-semibold">{children}</dd>
     </div>
   );
 }

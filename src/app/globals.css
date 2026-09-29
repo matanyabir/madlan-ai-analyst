@@ -1,26 +1,114 @@
 @import "tailwindcss";
 
+/*
+ * Hebrew-first, RTL-native.
+ *
+ * Every rule here uses logical properties (inline-start / inline-end) rather
+ * than left / right, so the layout is correct in RTL without a single
+ * direction-specific override. Tailwind v4's `ms-*` / `me-*` / `ps-*` / `pe-*`
+ * utilities do the same for spacing — `ml-*` and `mr-*` are not used anywhere
+ * in this codebase on purpose.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f7f8fa;
+  --surface: #ffffff;
+  --surface-muted: #f1f3f7;
+  --foreground: #14161a;
+  --muted: #5c6270;
+  --subtle: #8b909c;
+  --border: #e3e6ec;
+  --accent: #1f6feb;
+  --accent-soft: #e8f0fe;
+  --positive: #0f7b4f;
+  --negative: #b3261e;
+  --warning: #9a6400;
+  --warning-soft: #fff6e0;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --font-sans: var(--font-heebo), "Segoe UI", system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-heebo), "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Numbers and Latin identifiers inside Hebrew text.
+ *
+ * The bidi algorithm handles digits well on its own, but a deal id like
+ * "D100317" or a price range with an en dash can flip visually mid-sentence.
+ * Wrapping those in .ltr isolates them.
+ */
+.ltr {
+  direction: ltr;
+  unicode-bidi: isolate;
+  display: inline-block;
+}
+
+/* Tabular figures keep columns of prices aligned. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgb(255 255 255 / 0.65),
+    transparent
+  );
+  animation: shimmer 1.4s infinite;
+}
+
+/* Recharts renders an SVG; keep it LTR so axes are not mirrored twice. */
+.recharts-wrapper {
+  direction: ltr;
 }

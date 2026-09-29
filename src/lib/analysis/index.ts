@@ -7,7 +7,9 @@ import {
 } from "./comparables";
 import { findAnomalies, MIN_PEERS } from "./anomalies";
 import { ANOMALY_THRESHOLD } from "./stats";
-import type { AnalysisResult, Evidence, MetricCard, SeriesPoint } from "./types";
+import type {
+  AnalysisResult, Evidence, Granularity, MetricCard, SeriesPoint,
+} from "./types";
 
 export * from "./types";
 export * from "./filters";
@@ -17,6 +19,9 @@ export * from "./anomalies";
 
 /** Hard ceiling on rows returned to the client and to the model. */
 export const MAX_RESULT_ROWS = 50;
+
+/** Below this many transactions an answer is flagged as a small sample. */
+export const SMALL_SAMPLE = 10;
 
 export type MetricName = "price_per_sqm" | "price" | "size" | "count";
 
@@ -49,6 +54,16 @@ function buildEvidence(
   notes: string[] = [],
 ): Evidence {
   const allNotes = [...notes];
+
+  // A correct number from a tiny sample is still a weak basis for a claim.
+  // Say so on the answer itself rather than leaving the reader to notice the
+  // count in the evidence panel.
+  if (deals.length > 0 && deals.length < SMALL_SAMPLE) {
+    allNotes.push(
+      `מדגם קטן — ${deals.length} עסקאות בלבד. המספרים מדויקים אך אינם בהכרח מייצגים`,
+    );
+  }
+
   const monthOnly = deals.filter((d) => d.datePrecision === "month").length;
   if (monthOnly) {
     allNotes.push(`${monthOnly} עסקאות מדווחות ברמת חודש בלבד ללא יום מדויק`);
@@ -124,12 +139,24 @@ export function getStatistics(
 
 // --------------------------------------------------------------- time series
 
-/** Below this many deals a month is merged into quarters instead. */
+/** Below this many deals a period is too thin to anchor a claim. */
 const MIN_PER_PERIOD = 3;
+
+const GRANULARITIES: Granularity[] = ["month", "quarter", "year"];
+
+function bucketKeyFor(iso: string, g: Granularity): string {
+  if (g === "month") return monthKey(iso);
+  if (g === "quarter") return quarterKey(iso);
+  return iso.slice(0, 4);
+}
+
+const GRANULARITY_LABEL: Record<Granularity, string> = {
+  month: "חודש", quarter: "רבעון", year: "שנה",
+};
 
 export function getTimeSeries(
   snapshot: Snapshot, filters: DealFilter, metric: MetricName = "price_per_sqm",
-  granularity?: "month" | "quarter",
+  granularity?: Granularity,
 ): AnalysisResult {
   const { deals, exclusions, descriptions } = applyFilters(snapshot.deals, filters);
   const dated = deals.filter((d) => d.dealDate);
@@ -139,12 +166,12 @@ export function getTimeSeries(
       "אין מספיק עסקאות במאגר כדי להציג מגמה אמינה לאורך זמן.", descriptions, dated.length);
   }
 
-  const bucket = (g: "month" | "quarter") => {
+  const bucket = (g: Granularity) => {
     const map = new Map<string, number[]>();
     for (const d of dated) {
-      const key = g === "month" ? monthKey(d.dealDate!) : quarterKey(d.dealDate!);
       const v = metricValue(d, metric);
       if (v == null) continue;
+      const key = bucketKeyFor(d.dealDate!, g);
       const list = map.get(key);
       if (list) list.push(v);
       else map.set(key, [v]);
@@ -152,13 +179,21 @@ export function getTimeSeries(
     return map;
   };
 
-  // Choose granularity from the data rather than guessing: if most months are
-  // too thin to produce a meaningful median, fall back to quarters.
-  let chosen: "month" | "quarter" = granularity ?? "month";
+  /**
+   * Widen the bucket until most periods carry enough deals to mean something.
+   *
+   * 27 deals spread over five years gives roughly two per quarter, and a
+   * "median" of two is not a median. Escalating month -> quarter -> year is
+   * how the data decides its own resolution instead of the caller guessing.
+   */
+  let chosen: Granularity = granularity ?? "month";
   if (!granularity) {
-    const monthly = bucket("month");
-    const thin = [...monthly.values()].filter((v) => v.length < MIN_PER_PERIOD).length;
-    if (thin > monthly.size / 2) chosen = "quarter";
+    for (const g of GRANULARITIES) {
+      const sizes = [...bucket(g).values()].map((v) => v.length);
+      const thin = sizes.filter((n) => n < MIN_PER_PERIOD).length;
+      chosen = g;
+      if (thin <= sizes.length / 2) break;
+    }
   }
 
   const buckets = bucket(chosen);
@@ -167,9 +202,44 @@ export function getTimeSeries(
       period,
       value: metric === "count" ? values.length : round(median(values)),
       n: values.length,
+      sparse: values.length < MIN_PER_PERIOD,
     }))
     // Periods with no transactions are absent, never interpolated.
     .sort((a, b) => a.period.localeCompare(b.period));
+
+  /**
+   * The endpoint change is the single most quotable number here, and the
+   * easiest to get wrong: computing it from a first and last period of one
+   * deal each turns two transactions into a five-year trend. It is therefore
+   * measured between the first and last periods that actually clear the
+   * threshold, and is null when fewer than two do.
+   */
+  const solid = points.filter((p) => !p.sparse);
+  const change =
+    solid.length >= 2 && solid[0].value > 0
+      ? {
+          fromPeriod: solid[0].period,
+          toPeriod: solid[solid.length - 1].period,
+          percent: round((solid[solid.length - 1].value / solid[0].value - 1) * 100, 1),
+          fromN: solid[0].n,
+          toN: solid[solid.length - 1].n,
+        }
+      : null;
+
+  const sparseCount = points.length - solid.length;
+  const notes: string[] = [`הנתונים מקובצים לפי ${GRANULARITY_LABEL[chosen]}`];
+  if (chosen !== "month") {
+    notes.push(`נבחרה רזולוציה של ${GRANULARITY_LABEL[chosen]} כי ברזולוציה צפופה יותר אין מספיק עסקאות לתקופה`);
+  }
+  if (sparseCount) {
+    notes.push(
+      `${sparseCount} תקופות מבוססות על פחות מ-${MIN_PER_PERIOD} עסקאות ומסומנות בגרף. ` +
+      `חישוב השינוי מתעלם מהן`,
+    );
+  }
+  if (!change) {
+    notes.push("אין מספיק תקופות עם מספר עסקאות מספק כדי לחשב שינוי לאורך התקופה");
+  }
 
   const meta = METRIC_META[metric];
   const where = filters.city ? ` ב${filters.city}` : "";
@@ -181,11 +251,10 @@ export function getTimeSeries(
     unit: meta.unit,
     points,
     granularity: chosen,
+    change,
     evidence: buildEvidence(snapshot, dated, descriptions, exclusions,
       { name: meta.label, definition: `${meta.definition}. תקופות ללא עסקאות אינן מוצגות` },
-      [chosen === "quarter"
-        ? "הנתונים קובצו לרבעונים כי בחלק מהחודשים אין מספיק עסקאות"
-        : "הנתונים מקובצים לפי חודש"]),
+      notes),
   };
 }
 

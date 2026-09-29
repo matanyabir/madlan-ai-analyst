@@ -86,6 +86,20 @@ describe("getStatistics", () => {
     expect(r.evidence.metric?.definition).toContain("חציון");
   });
 
+  it("flags a small sample rather than presenting 2 deals as a finding", () => {
+    // There really are only 2 exact-4-room deals in רמת גן. The count is
+    // right; presenting it without a caveat would not be.
+    const r = getStatistics(snap, { city: "רמת גן", roomsMin: 4, roomsMax: 4 }, "count");
+    expect(r.evidence.transactionCount).toBe(2);
+    expect(r.evidence.notes.some((n) => n.includes("מדגם קטן"))).toBe(true);
+  });
+
+  it("does not flag a healthy sample", () => {
+    const r = getStatistics(snap, { city: "חולון" });
+    expect(r.evidence.transactionCount).toBeGreaterThan(20);
+    expect(r.evidence.notes.some((n) => n.includes("מדגם קטן"))).toBe(false);
+  });
+
   it("says so rather than inventing an answer when nothing matches", () => {
     const r = getStatistics(snap, { city: "רמת גן", roomsMin: 99 });
     expect(r.type).toBe("insufficient");
@@ -113,12 +127,49 @@ describe("getTimeSeries", () => {
     expect(total).toBe(r.evidence.transactionCount);
   });
 
-  it("drops to quarters when months are too thin, and says so", () => {
-    // A single small city over five years has mostly empty months.
-    const r = getTimeSeries(snap, { city: "אשדוד" });
+  it("widens the bucket until periods carry enough deals", () => {
+    // 27 deals over five years is ~2 per quarter. A median of two is not a
+    // median, so the engine escalates to years on its own.
+    const r = getTimeSeries(snap, { city: "רמת גן" });
     if (r.type !== "timeSeries") throw new Error("wrong type");
-    expect(r.granularity).toBe("quarter");
-    expect(r.evidence.notes.some((n) => n.includes("רבעונים"))).toBe(true);
+    expect(r.granularity).toBe("year");
+    expect(r.evidence.notes.some((n) => n.includes("רזולוציה"))).toBe(true);
+
+    // The whole dataset is dense enough for months.
+    const all = getTimeSeries(snap, {});
+    if (all.type !== "timeSeries") throw new Error("wrong type");
+    expect(all.granularity).toBe("month");
+  });
+
+  it("never computes a change from single-transaction endpoints", () => {
+    // Before this guard, רמת גן reported "a 67.7% rise" from a first and
+    // last quarter of one deal each. Two transactions are not a trend.
+    const r = getTimeSeries(snap, { city: "רמת גן" });
+    if (r.type !== "timeSeries") throw new Error("wrong type");
+
+    if (r.change) {
+      expect(r.change.fromN).toBeGreaterThanOrEqual(3);
+      expect(r.change.toN).toBeGreaterThanOrEqual(3);
+      // The change must be anchored to periods actually present and solid.
+      const solid = r.points.filter((p) => !p.sparse);
+      expect(solid[0].period).toBe(r.change.fromPeriod);
+      expect(solid.at(-1)!.period).toBe(r.change.toPeriod);
+    }
+  });
+
+  it("marks thin periods rather than hiding or interpolating them", () => {
+    const r = getTimeSeries(snap, { city: "רמת גן" });
+    if (r.type !== "timeSeries") throw new Error("wrong type");
+    for (const p of r.points) {
+      expect(p.sparse).toBe(p.n < 3);
+    }
+  });
+
+  it("says it cannot determine a change when no period is solid enough", () => {
+    const sparse = getTimeSeries(snap, { city: "אשדוד", roomsMin: 5 });
+    if (sparse.type === "timeSeries" && sparse.change === null) {
+      expect(sparse.evidence.notes.some((n) => n.includes("אין מספיק תקופות"))).toBe(true);
+    }
   });
 
   it("refuses to draw a trend from too few points", () => {
