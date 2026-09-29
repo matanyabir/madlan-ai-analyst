@@ -45,7 +45,6 @@ export function LoginForm() {
        * load, on the one navigation in the app where correctness beats
        * smoothness.
        */
-      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- see above: router.push/replace is the documented cause of this bug, not the fix.
       window.location.assign(body.next ?? (body.role === "admin" ? "/admin" : "/"));
     } catch {
       setError("לא הצלחנו להתחבר לשרת");
