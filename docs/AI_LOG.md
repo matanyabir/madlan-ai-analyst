@@ -2,15 +2,17 @@
 
 The brief asks for a short log of how this was built with AI assistance,
 "including at least one time it gave you a bad answer and you caught it".
-There are nine, and they are recorded as they happened rather than
+There are ten, and they are recorded as they happened rather than
 reconstructed at the end. The ones worth reading: #5, where the bad answer
 came from a tool I had written an hour earlier; #6, where correct code
 produced a false statement; #7, which a full green test suite could not have
 caught; #8, a UI annoyance that turned out to be putting the password in the
 URL; and #9, where the right number was displayed in the wrong place.
 
-Four of the nine were found by a person using the app, not by a test. That
-is the honest headline of this log.
+Four of the ten were found by a person using the app, and three more only
+when a real API key made the LLM integration testable at all. That is the
+honest headline of this log: most of these were not findable by reading the
+code.
 
 ## Tools
 
@@ -358,6 +360,64 @@ one shape of answer. Neither assumption was written down anywhere, which is
 why neither was tested. The correction that generalises is that an answer is
 not just a correct value — it is a correct value *in the position the
 question puts it*.
+
+## Bad answer #10 — three claims that were only true until tested
+
+Adding a real API key falsified three things this repo had been asserting.
+All three had been written confidently and none had been checked, because
+until there was a key there was nothing to check them against.
+
+**1. `strict: true` was silently failing every request.** The tool schemas
+set it, and the README described it as the guarantee that the model "cannot
+name a city that is not in the data". The first real router call returned:
+
+```
+400 tools.0.custom: For 'number' type, properties maximum, minimum are not supported
+```
+
+Strict mode rejects `minimum`/`maximum` on numbers and `minItems` above 1 on
+arrays. Every router call had been 400-ing and falling back to the
+deterministic path — producing correct answers with templated prose and no
+visible error, which is exactly what a good fallback is supposed to look
+like. The degradation worked so well it hid the failure.
+
+Fixing the bounds surfaced the real blocker: **strict mode allows 24
+optional parameters across all tools, and this schema needs 113.** A filter
+vocabulary rich enough for real questions cannot be strict. So `strict` is
+off, the enums remain as guidance, and **Zod is the guarantee** — which is
+what the two-layer design was for. The README's claim was rewritten, because
+it had described a guarantee the API never granted.
+
+**2. The cost estimate was 2.5× too low.** The README said ~$9.60/day at
+10k requests, from a guessed ~2,000-token cached prefix. The measured prefix
+was **37,816 tokens**.
+
+The reason is specific to this product and worth knowing: **Hebrew tokenises
+at roughly two tokens per character.** 17,786 characters of mostly-Hebrew
+tool definitions became 37,816 tokens — not the ~5,500 a character count
+implies. Reasoning about token cost for a Hebrew product using English
+intuitions is wrong by 3–7×.
+
+Dropping the 100-value neighbourhood enum to a plain string cut the prefix
+53%. The section is now a measurement with the arithmetic shown.
+
+**3. The model was making a statistical decision.** `get_time_series`
+exposed `granularity` as a parameter. Claude, reasonably, passed
+`"month"` — and רמת גן has ~2 deals per month, so the answer became *"not
+enough data to determine a trend"*. Correct, and a worse answer than the
+engine's own month → quarter → year escalation produces.
+
+Granularity is not a language decision. It depends on how many transactions
+land in each bucket, which is exactly the kind of judgement this
+architecture puts on the deterministic side. It is no longer offered to the
+model.
+
+**The lesson.** The first two were invisible precisely because the failure
+modes were well-built: a fallback good enough to mask a 100% failure rate,
+and a cost model that no one could contradict without spending money. The
+third was invisible because the parameter looked innocuous. Nothing here was
+found by reasoning about the code — all three needed a real key and a real
+request. *An untested integration is a hypothesis, however well documented.*
 
 ## Smaller ones, recorded for completeness
 

@@ -3,17 +3,30 @@ import type { Snapshot } from "@/lib/types";
 import { MAX_RESULT_ROWS } from "@/lib/analysis";
 
 /**
- * The six operations the model is allowed to invoke.
+ * The seven operations the model is allowed to invoke.
  *
- * Two independent guards, deliberately:
+ * Two layers, and it matters which one carries the guarantee:
  *
- *   1. The JSON Schema sent to Claude uses `strict: true` and enumerates
- *      cities, property types and conditions from the *snapshot's own
- *      vocabulary*. The model cannot name a city that is not in the data.
+ *   1. The JSON Schema sent to Claude enumerates cities, neighbourhoods,
+ *      property types and conditions from the *snapshot's own vocabulary*.
+ *      This tells the model what exists. It is guidance, not enforcement.
  *
- *   2. The Zod schemas below re-validate every argument server-side, because
- *      `strict: true` is the model's promise and this is ours. A malformed
- *      or out-of-range argument is rejected, not clamped.
+ *   2. The Zod schemas below re-validate every argument server-side. This is
+ *      the actual guarantee. A malformed, unknown or out-of-range argument
+ *      is rejected and the request falls to the deterministic router rather
+ *      than producing a confidently wrong answer.
+ *
+ * `strict: true` is deliberately NOT set, and the reason is a hard API
+ * limit rather than a preference: strict mode allows at most 24 optional
+ * parameters across all tools, and a filter vocabulary rich enough to answer
+ * real questions (city, neighbourhood, type, condition, rooms, size, price,
+ * year, floor, four amenities, date range) repeated across five analysis
+ * tools is 113. Keeping strict would mean cutting the product's query
+ * surface to roughly four fields.
+ *
+ * Strict mode also rejects `minimum`/`maximum` on numbers and `minItems`
+ * above 1 on arrays, so those bounds live in each property's description,
+ * where the model reads them, and in Zod, where they are enforced.
  *
  * The model never receives SQL, a query language, or a free-text filter.
  */
@@ -60,7 +73,10 @@ export const TOOL_SCHEMAS = {
   get_time_series: z.object({
     filters: filters.optional(),
     metric: metric.optional(),
-    granularity: z.enum(["month", "quarter"]).optional(),
+    // Accepted but not offered to the model: /browse and future callers may
+    // force a resolution, the router may not. See the note in the tool
+    // definition below.
+    granularity: z.enum(["month", "quarter", "year"]).optional(),
   }).strict(),
 
   compare_locations: z.object({
@@ -107,29 +123,67 @@ export function isToolName(name: string): name is ToolName {
 
 type JsonSchema = Record<string, unknown>;
 
+/**
+ * Numeric bounds live in the description, not in the schema.
+ *
+ * `strict: true` rejects `minimum`/`maximum` on number and integer, and
+ * `minItems` above 1 on arrays:
+ *
+ *   tools.0.custom: For 'number' type, properties maximum, minimum are not supported
+ *
+ * Sending them is a 400 on every request, which this app experienced as the
+ * router silently falling back to the deterministic path — a correct answer
+ * with worse prose, and no visible error. So the range is stated in prose
+ * the model reads, and enforced by the Zod schemas above, which is where the
+ * real guarantee lived anyway.
+ */
+function bounded(
+  type: "number" | "integer",
+  min: number,
+  max: number,
+  description?: string,
+): JsonSchema {
+  const range = `ערך בין ${min} ל-${max}`;
+  return { type, description: description ? `${description}. ${range}` : range };
+}
+
 function filterJsonSchema(v: Snapshot["vocabulary"]): JsonSchema {
-  const allNeighborhoods = [
-    ...new Set(Object.values(v.neighborhoodsByCity).flat()),
-  ];
   return {
     type: "object",
     description: "מסננים. יש להשמיט כל שדה שלא נדרש במפורש.",
     properties: {
       // Enumerated from the snapshot: the model physically cannot invent one.
       city: { type: "string", enum: v.cities },
-      neighborhood: { type: "string", enum: allNeighborhoods },
+      /*
+       * Neighbourhood is a plain string, not an enum, and this is a cost
+       * decision made against a measurement.
+       *
+       * Hebrew tokenises at roughly two tokens per character, so the
+       * 100-value neighbourhood list cost ~14,000 tokens each request once
+       * repeated across six tools — more than half the entire cached
+       * prefix. Cities stay enumerated because they are the filter that
+       * actually decides an answer and there are only 18 of them.
+       *
+       * The grounding cost is small and bounded: an invented neighbourhood
+       * matches no rows, and the engine already answers "no matching
+       * transactions" rather than inventing any.
+       */
+      neighborhood: {
+        type: "string",
+        description: "שם שכונה מדויק כפי שהוא מופיע במאגר. יש לציין רק אם המשתמש ציין שכונה",
+      },
       propertyType: { type: "string", enum: v.propertyTypes },
       condition: { type: "string", enum: v.conditions },
-      roomsMin: { type: "number", minimum: 0, maximum: 20 },
-      roomsMax: { type: "number", minimum: 0, maximum: 20 },
-      sizeMin: { type: "number", minimum: 0, maximum: 10000 },
-      sizeMax: { type: "number", minimum: 0, maximum: 10000 },
-      priceMin: { type: "number", minimum: 0 },
-      priceMax: { type: "number", minimum: 0 },
-      yearBuiltMin: { type: "integer", minimum: 1800, maximum: 2100 },
-      yearBuiltMax: { type: "integer", minimum: 1800, maximum: 2100 },
-      floorMin: { type: "integer", minimum: -5, maximum: 200 },
-      floorMax: { type: "integer", minimum: -5, maximum: 200 },
+      roomsMin: bounded("number", 0, 20),
+      roomsMax: bounded("number", 0, 20),
+      sizeMin: bounded("number", 0, 10000, "שטח במ״ר"),
+      sizeMax: bounded("number", 0, 10000, "שטח במ״ר"),
+      priceMin: bounded("number", 0, 1_000_000_000, "מחיר בשקלים"),
+      priceMax: bounded("number", 0, 1_000_000_000, "מחיר בשקלים"),
+      yearBuiltMin: bounded("integer", 1800, 2100),
+      yearBuiltMax: bounded("integer", 1800, 2100),
+      floorMin: bounded("integer", -5, 200),
+      floorMax: bounded("integer", -5, 200),
       hasElevator: { type: "boolean" },
       hasParking: { type: "boolean" },
       hasBalcony: { type: "boolean" },
@@ -161,7 +215,9 @@ export function buildToolDefinitions(snapshot: Snapshot) {
   const tool = (name: ToolName, description: string, properties: JsonSchema, required: string[] = []) => ({
     name,
     description,
-    strict: true,
+    // No `strict: true` — see the note above. additionalProperties:false is
+    // still declared so the schema documents the closed shape, and Zod's
+    // .strict() rejects anything extra server-side.
     input_schema: { type: "object", properties, required, additionalProperties: false },
   });
 
@@ -174,17 +230,17 @@ export function buildToolDefinitions(snapshot: Snapshot) {
     tool("get_time_series",
       "מגמה לאורך זמן — איך מדד השתנה לפי חודש או רבעון. " +
       "מתאים לשאלות כמו 'איך השתנה המחיר למ\"ר ברמת גן'.",
-      {
-        filters: f,
-        metric: METRIC_SCHEMA,
-        granularity: { type: "string", enum: ["month", "quarter"] },
-      }),
+      { filters: f, metric: METRIC_SCHEMA }),
 
     tool("compare_locations",
       "השוואה בין שתיים עד ארבע ערים לפי מדד אחד. " +
       "מתאים לשאלות כמו 'תשווה בין רמת גן לגבעתיים'.",
       {
-        cities: { type: "array", items: { type: "string", enum: v.cities }, minItems: 2, maxItems: 4 },
+        cities: {
+          type: "array",
+          items: { type: "string", enum: v.cities },
+          description: "שתיים עד ארבע ערים להשוואה",
+        },
         metric: METRIC_SCHEMA,
         filters: f,
       },
@@ -194,7 +250,7 @@ export function buildToolDefinitions(snapshot: Snapshot) {
       "רשימת עסקאות בודדות התואמות סינון. מתאים ל'הראה לי עסקאות של...'.",
       {
         filters: f,
-        limit: { type: "integer", minimum: 1, maximum: MAX_RESULT_ROWS },
+        limit: bounded("integer", 1, MAX_RESULT_ROWS, "כמה עסקאות להחזיר"),
         sort: { type: "string", enum: SORTS },
       }),
 
@@ -203,18 +259,18 @@ export function buildToolDefinitions(snapshot: Snapshot) {
       "מתאים ל'מצא עסקאות דומות לדירת 4 חדרים, 100 מ\"ר ברמת גן'.",
       {
         city: { type: "string", enum: v.cities },
-        rooms: { type: "number", minimum: 0, maximum: 20 },
-        sizeSqm: { type: "number", minimum: 1, maximum: 10000 },
+        rooms: bounded("number", 0, 20),
+        sizeSqm: bounded("number", 1, 10000, "שטח הנכס במ״ר"),
         propertyType: { type: "string", enum: v.propertyTypes },
-        neighborhood: { type: "string", enum: [...new Set(Object.values(v.neighborhoodsByCity).flat())] },
-        priceNis: { type: "number", minimum: 0, description: "המחיר שהמשתמש ציין לנכס שלו, אם ציין" },
-        limit: { type: "integer", minimum: 1, maximum: MAX_RESULT_ROWS },
+        neighborhood: { type: "string", description: "שכונה, רק אם המשתמש ציין" },
+        priceNis: bounded("number", 0, 1_000_000_000, "המחיר שהמשתמש ציין לנכס שלו, אם ציין"),
+        limit: bounded("integer", 1, MAX_RESULT_ROWS, "כמה עסקאות להחזיר"),
       },
       ["city"]),
 
     tool("find_anomalies",
       "עסקאות חריגות סטטיסטית מול קבוצת השוואה. מתאים ל'מצא עסקאות חריגות'.",
-      { filters: f, limit: { type: "integer", minimum: 1, maximum: MAX_RESULT_ROWS } }),
+      { filters: f, limit: bounded("integer", 1, MAX_RESULT_ROWS, "כמה עסקאות להחזיר") }),
 
     tool("answer_not_supported",
       "יש לבחור בכלי הזה כאשר המאגר אינו יכול לענות על השאלה — למשל שאלות על " +

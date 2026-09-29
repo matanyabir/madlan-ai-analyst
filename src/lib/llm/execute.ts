@@ -49,7 +49,7 @@ export function executeToolCall(snapshot: Snapshot, call: ToolCall): ExecutionOu
       const a = args as {
         filters?: DealFilter;
         metric?: "price_per_sqm" | "price" | "size" | "count";
-        granularity?: "month" | "quarter";
+        granularity?: "month" | "quarter" | "year";
       };
       return done(getTimeSeries(snapshot, a.filters ?? {}, a.metric ?? "price_per_sqm", a.granularity));
     }

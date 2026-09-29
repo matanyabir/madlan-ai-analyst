@@ -12,11 +12,11 @@ import { getClient, isTransient, CANONICALIZER_MODEL, Anthropic } from "@/lib/ll
  *
  * Three properties make this safe enough to let near the data:
  *
- *   1. **Closed output.** The tool schema enumerates the canonical city list,
- *      so `strict: true` means the model cannot return a city that does not
- *      exist. The answer is a choice, not a generation.
- *   2. **Whitelist re-check.** The returned value is verified against the
- *      list again server-side, because the schema is the model's promise.
+ *   1. **Closed vocabulary.** The tool schema enumerates the canonical city
+ *      list, so the model is choosing from a menu rather than generating.
+ *   2. **Whitelist re-check.** Every returned value is verified against that
+ *      list server-side. This is the guarantee — the schema is guidance, and
+ *      a model that ignores it is caught here rather than trusted.
  *   3. **Confidence thresholds.** High confidence applies; medium applies but
  *      is flagged for admin review; low is refused and the row is
  *      quarantined. A guess is never silently accepted.
@@ -80,7 +80,6 @@ async function askClaude(values: string[]): Promise<Mapping[] | null> {
   const tool = {
     name: "submit_city_mappings",
     description: "החזרת מיפוי מכל ערך גולמי לשם עיר קנוני מתוך הרשימה המותרת.",
-    strict: true,
     input_schema: {
       type: "object",
       properties: {
@@ -92,9 +91,11 @@ async function askClaude(values: string[]): Promise<Mapping[] | null> {
               rawValue: { type: "string", description: "הערך הגולמי, בדיוק כפי שהתקבל" },
               // The closed set. The model cannot answer outside it.
               canonical: { type: "string", enum: CANONICAL_CITIES },
+              // No minimum/maximum: strict:true rejects them. The range is
+              // stated in prose and clamped when read.
               confidence: {
-                type: "number", minimum: 0, maximum: 1,
-                description: "0 עד 1. ערך נמוך מ-0.6 יגרום לדחיית המיפוי",
+                type: "number",
+                description: "ערך בין 0 ל-1. ערך נמוך מ-0.6 יגרום לדחיית המיפוי",
               },
               reasoning: { type: "string", description: "משפט קצר בעברית: על מה מבוסס המיפוי" },
             },

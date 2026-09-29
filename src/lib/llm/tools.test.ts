@@ -8,11 +8,50 @@ const snap = getSnapshot();
 const tools = buildToolDefinitions(snap);
 
 describe("tool definitions sent to Claude", () => {
-  it("exposes exactly the seven operations, all strict", () => {
+  it("exposes exactly the seven operations with closed shapes", () => {
     expect(tools).toHaveLength(7);
-    expect(tools.every((t) => t.strict === true)).toBe(true);
     expect(tools.every((t) => t.input_schema.additionalProperties === false)).toBe(true);
     expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
+  });
+
+  it("sends nothing strict-mode forbids, in case it is ever re-enabled", () => {
+    // The API rejects minimum/maximum on numbers and minItems above 1 under
+    // strict:true. Those bounds belong in the description and in Zod.
+    const walk = (node: unknown, path: string): string[] => {
+      if (!node || typeof node !== "object") return [];
+      const o = node as Record<string, unknown>;
+      const bad: string[] = [];
+      for (const key of ["minimum", "maximum"]) {
+        if (key in o) bad.push(`${path}.${key}`);
+      }
+      if (typeof o.minItems === "number" && o.minItems > 1) bad.push(`${path}.minItems`);
+      for (const [k, v] of Object.entries(o)) bad.push(...walk(v, `${path}.${k}`));
+      return bad;
+    };
+    const offenders = tools.flatMap((t) => walk(t.input_schema, t.name));
+    expect(offenders).toEqual([]);
+  });
+
+  it("states numeric ranges in prose, where the model can read them", () => {
+    const stats = tools.find((t) => t.name === "get_statistics")!;
+    const filters = (stats.input_schema.properties as Record<string, {
+      properties: Record<string, { description?: string }>;
+    }>).filters;
+    expect(filters.properties.roomsMin.description).toMatch(/בין 0 ל-20/);
+  });
+
+  it("stays under the optional-parameter ceiling strict mode would impose", () => {
+    // Documented here because it is the reason strict:true is off: the API
+    // allows 24 optional params across all tools and this schema needs ~113.
+    // If a future change brings it under 24, strict becomes available again.
+    const count = tools.reduce((n, t) => {
+      const props = t.input_schema.properties as Record<string, { properties?: object }>;
+      const required = (t.input_schema.required as string[]) ?? [];
+      let own = Object.keys(props).length - required.length;
+      if (props.filters?.properties) own += Object.keys(props.filters.properties).length - 1;
+      return n + own;
+    }, 0);
+    expect(count).toBeGreaterThan(24); // the schema genuinely cannot be strict
   });
 
   it("enumerates cities from the snapshot so the model cannot invent one", () => {
@@ -24,11 +63,25 @@ describe("tool definitions sent to Claude", () => {
     expect(cityEnum).not.toContain("תל אביב");
   });
 
-  it("caps every limit at the result ceiling in the schema itself", () => {
+  it("tells the model the result ceiling, and enforces it in Zod", () => {
+    // The cap cannot live in the schema (strict mode forbids `maximum`, and
+    // without strict it is advisory anyway), so it is stated in the
+    // description and guaranteed server-side.
     for (const t of tools) {
-      const limit = (t.input_schema.properties as Record<string, { maximum?: number }>).limit;
-      if (limit) expect(limit.maximum).toBe(MAX_RESULT_ROWS);
+      const limit = (t.input_schema.properties as Record<string, { description?: string }>).limit;
+      if (limit) expect(limit.description).toContain(String(MAX_RESULT_ROWS));
     }
+    // The guarantee: an over-cap limit is rejected, not honoured.
+    expect(executeToolCall(snap, { name: "search_transactions", input: { limit: 500 } }))
+      .toMatchObject({ ok: false, error: "invalid_arguments" });
+  });
+
+  it("does not let the model choose a time resolution", () => {
+    // Granularity depends on how many deals fall in each bucket, which is a
+    // statistical judgement the engine makes from the data. A model forcing
+    // "month" on a thin city produces an answer reporting no trend at all.
+    const ts = tools.find((t) => t.name === "get_time_series")!;
+    expect(Object.keys(ts.input_schema.properties as object)).not.toContain("granularity");
   });
 
   it("offers an explicit way to decline, so declining is a first-class choice", () => {

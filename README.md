@@ -160,48 +160,58 @@ shows. Nothing validates the string against a list of known models on
 purpose: a new model should be usable the day it ships, and a wrong id fails
 loudly on the first call rather than silently degrading.
 
-## Cost at 10,000 requests/day
+## Cost at 10,000 requests/day — measured, not estimated
 
 Two calls per uncached question on `claude-haiku-4-5` ($1/MTok in, $5/MTok
-out), with the system prompt and tool definitions as a cached prefix.
+out, cache reads at $0.10/MTok), averaged over the seven demo questions with
+a warm prompt cache:
 
-| | in | out |
+| | tokens | rate | cost |
+|---|---|---|---|
+| fresh input | 1,463 | $1.00/M | $0.00146 |
+| cached prefix read | 18,613 | $0.10/M | $0.00186 |
+| output | 268 | $5.00/M | $0.00134 |
+| | | | **$0.0047 / question** |
+
+| response-cache hit rate | LLM calls/day | cost |
 |---|---|---|
-| Call 1 — router | ~1,300 (≈1,100 cached) | ~120 |
-| Call 2 — narrator | ~1,100 (≈900 cached) | ~200 |
+| 60% (conservative) | 4,000 | **$18.65/day** · ~$560/mo |
+| 80% (realistic for demo traffic) | 2,000 | **$9.33/day** · ~$280/mo |
 
-Assuming a 60% response-cache hit rate — conservative; demo traffic is mostly
-the five example prompts — about 4,000 questions/day reach the model:
+Ingestion is excluded because it is effectively free: uploading the sample
+CSV makes **zero** API calls, since all 530 rows resolve deterministically.
 
-```
-fresh input    4,000 × 600   = 2.4M   × $1.00 /M  = $2.40
-cached input   4,000 × 2,000 = 8.0M   × $0.10 /M  = $0.80
-output         4,000 × 320   = 1.28M  × $5.00 /M  = $6.40
-                                                    ─────
-                                         ≈ $9.60/day   ≈ $290/month
-```
+### The thing I got wrong, and what it taught me
 
-Ingestion is not in that figure because it is ~free: uploading the sample CSV
-makes **zero** API calls, since all 530 rows resolve deterministically. The
-model is consulted only for values no rule recognises, batched into one call
-for the whole file regardless of size.
+An earlier version of this section estimated $9.60/day from a guessed
+~2,000-token cached prefix. The first request made with a real API key
+reported **37,816**.
 
-**What I would change at 10×** (100k/day, ~$2,900/month):
+The cause is specific to this product: **Hebrew tokenises at roughly two
+tokens per character.** The tool definitions are 17,786 characters of mostly
+Hebrew — enum values, descriptions — and became 37,816 tokens, not the
+~5,500 a character-count estimate suggests. Anyone reasoning about LLM cost
+for a Hebrew product from English intuitions will be out by 3–7×.
 
-1. **Move routing to Jev** (see below) — it is a classification with a closed
-   answer set, priced at $0.042/MTok in with output free. Removes call 1's
-   cost almost entirely: ~$9.60/day → ~$6/day at current volume.
-2. **Redis instead of the in-process LRU.** Today each instance has its own
-   cache, so the hit rate is divided by the instance count. One shared cache
-   would raise the real hit rate well above 60%.
-3. **Precompute the common aggregates at upload time** — per city/month
-   medians are a few hundred rows and would serve most traffic with no
-   computation at all.
+Dropping the 100-value neighbourhood enum to a plain string cut the prefix
+**53%**, from 37,816 to 17,911, for a small and bounded grounding cost: an
+invented neighbourhood matches no rows, and the engine already answers "no
+matching transactions" rather than inventing any. Cities stay enumerated —
+18 values, and it is the filter that actually decides an answer.
+
+### What I would change at 10×
+
+1. **Move routing to Jev** — a closed-set classification at $0.042/MTok in
+   with output free. It removes the larger of the two calls.
+2. **Redis instead of the in-process LRU.** Each instance currently has its
+   own cache, so the real hit rate is divided by the instance count. A shared
+   cache is what moves 60% toward 80%, which halves the bill.
+3. **Trim the prefix further.** The filter object is repeated across five
+   tools. Collapsing the analysis tools into one with an `operation` enum
+   would cut the cached prefix by roughly another half.
 4. **Semantic cache on the routed tool call**, not the question string.
    "כמה עסקאות ברמת גן" and "מספר העסקאות ברמת גן" route identically and
    currently cost two separate calls.
-
----
 
 ## Failure handling
 
