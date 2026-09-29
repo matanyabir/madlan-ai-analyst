@@ -78,6 +78,36 @@ describe("getStatistics", () => {
     expect(r.metrics.find((m) => m.label.startsWith("חציון"))!.value).toBe(Math.round(expected));
   });
 
+  it("leads with the metric that was asked for, not the transaction count", () => {
+    // The headline card is rendered as the big number, so it has to answer
+    // the question. Leading with the count turned "what is the average
+    // price" into a large "27". See docs/AI_LOG.md #9.
+    const price = getStatistics(snap, { city: "רמת גן" }, "price");
+    if (price.type !== "statistics") throw new Error("wrong type");
+    expect(price.metrics[0].label).toContain("חציון");
+    expect(price.metrics[0].unit).toBe("nis");
+
+    // A genuine count question still leads with the count.
+    const count = getStatistics(snap, { city: "רמת גן" }, "count");
+    if (count.type !== "statistics") throw new Error("wrong type");
+    expect(count.metrics[0].label).toBe("מספר עסקאות");
+  });
+
+  it("keeps the transaction count visible as a supporting card", () => {
+    const r = getStatistics(snap, { city: "רמת גן" }, "price");
+    if (r.type !== "statistics") throw new Error("wrong type");
+    const countCard = r.metrics.find((m) => m.label === "מספר עסקאות");
+    expect(countCard?.value).toBe(r.evidence.transactionCount);
+  });
+
+  it("shows the complementary price view alongside", () => {
+    // Someone asking about price usually wants both figures, and both are
+    // already computed.
+    const r = getStatistics(snap, { city: "רמת גן" }, "price");
+    if (r.type !== "statistics") throw new Error("wrong type");
+    expect(r.metrics.some((m) => m.unit === "nis_per_sqm")).toBe(true);
+  });
+
   it("always reports the sample size and date range as evidence", () => {
     const r = getStatistics(snap, { city: "חיפה" });
     expect(r.evidence.transactionCount).toBeGreaterThan(0);

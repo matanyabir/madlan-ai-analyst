@@ -110,16 +110,48 @@ export function getStatistics(
 
   const meta = METRIC_META[metric];
   const values = deals.map((d) => metricValue(d, metric)).filter((v): v is number => v != null);
+  const metrics: MetricCard[] = [];
 
-  const metrics: MetricCard[] = [
-    { label: "מספר עסקאות", value: deals.length, unit: "count" },
-  ];
+  /*
+   * The first card is rendered as the headline, so it must answer the
+   * question that was asked. Leading with the transaction count turned
+   * "what is the average price in רמת גן?" into a large "27" with the price
+   * demoted to a supporting card — the right number, presented as the
+   * answer to a different question.
+   */
+  if (metric === "count" || !values.length) {
+    metrics.push({ label: "מספר עסקאות", value: deals.length, unit: "count" });
+  } else {
+    metrics.push({
+      label: `חציון ${meta.label}`,
+      value: round(median(values)),
+      unit: meta.unit,
+      hint: "חציון, לא ממוצע — עמיד יותר לעסקאות קיצון",
+    });
+    metrics.push({ label: `ממוצע ${meta.label}`, value: round(mean(values)), unit: meta.unit });
 
-  if (metric !== "count" && values.length) {
+    /*
+     * Show the complementary price view alongside. Someone asking about
+     * price usually wants both the headline figure and the per-m² figure,
+     * and both are already computed — withholding one would be arbitrary.
+     */
+    const companion: MetricName | null =
+      metric === "price" ? "price_per_sqm" : metric === "price_per_sqm" ? "price" : null;
+    if (companion) {
+      const companionValues = deals
+        .map((d) => metricValue(d, companion))
+        .filter((v): v is number => v != null);
+      if (companionValues.length) {
+        metrics.push({
+          label: `חציון ${METRIC_META[companion].label}`,
+          value: round(median(companionValues)),
+          unit: METRIC_META[companion].unit,
+        });
+      }
+    }
+
     metrics.push(
-      { label: `חציון ${meta.label}`, value: round(median(values)), unit: meta.unit,
-        hint: "חציון, לא ממוצע — עמיד יותר לעסקאות קיצון" },
-      { label: `ממוצע ${meta.label}`, value: round(mean(values)), unit: meta.unit },
+      { label: "מספר עסקאות", value: deals.length, unit: "count" },
       { label: "אחוזון 25", value: round(percentile(values, 0.25)), unit: meta.unit },
       { label: "אחוזון 75", value: round(percentile(values, 0.75)), unit: meta.unit },
       { label: "הנמוך ביותר", value: round(Math.min(...values)), unit: meta.unit },

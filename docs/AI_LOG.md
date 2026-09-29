@@ -2,12 +2,15 @@
 
 The brief asks for a short log of how this was built with AI assistance,
 "including at least one time it gave you a bad answer and you caught it".
-There are eight, and they are recorded as they happened rather than
-reconstructed at the end. The four worth reading are #5, where the bad
-answer came from a tool I had written an hour earlier; #6, where correct
-code produced a false statement; #7, which a full green test suite could not
-have caught; and #8, a UI annoyance that turned out to be putting the
-password in the URL.
+There are nine, and they are recorded as they happened rather than
+reconstructed at the end. The ones worth reading: #5, where the bad answer
+came from a tool I had written an hour earlier; #6, where correct code
+produced a false statement; #7, which a full green test suite could not have
+caught; #8, a UI annoyance that turned out to be putting the password in the
+URL; and #9, where the right number was displayed in the wrong place.
+
+Four of the nine were found by a person using the app, not by a test. That
+is the honest headline of this log.
 
 ## Tools
 
@@ -312,6 +315,49 @@ behaviour whether or not you want it, and `request.url` has a host whether
 or not it is the right one. Progressive enhancement is not nostalgia here —
 it is what decides whether a hydration failure is a cosmetic glitch or a
 credential disclosure.
+
+## Bad answer #9 — "כמה" means two different things
+
+**What happened.** Asked *"כמה עולה דירת גן ממוצעת"* — how much does an
+average garden apartment cost — the app answered with the **number of
+transactions**.
+
+**Two independent bugs, both of which had to be wrong for this to happen.**
+
+*The routing.* The deterministic router detected a count question with
+`/כמה|מספר ה?עסקאות|ספירה/`. But **כמה is both "how many" and "how much"**:
+
+```
+כמה עסקאות יש ברמת גן      how many  -> count
+כמה עולה דירת גן ממוצעת    how much  -> price
+```
+
+Every price question beginning with כמה became a count. The router now
+tests a price signal (עולה / עלות / מחיר / שווה / ממוצע / חציון) *before*
+the count pattern, and the count pattern requires something countable rather
+than the bare interrogative. A related detail: the per-m² pattern used `\b`
+after a Hebrew letter, which never matches — Hebrew letters are not `\w` in
+JavaScript regex, so `למ"ר` was not detected until the anchor came out.
+
+*The presentation.* `getStatistics` always put the transaction count first,
+and the renderer displays `metrics[0]` as the headline. So even when the
+price *was* computed correctly, it appeared as a small supporting card under
+a large transaction count. The right number, presented as the answer to a
+different question. The headline is now the metric that was asked for, with
+the count kept as a supporting card and the complementary price view
+(total ↔ per-m²) shown alongside.
+
+**Why the tests missed it.** They asserted the *number*, never its position:
+`metrics.find(m => m.label.startsWith("חציון"))` passes whether that card is
+rendered at 48px or 12px. The suite verified the computation and had nothing
+to say about whether the answer answered the question.
+
+**The lesson.** Both halves are the same failure at different layers: the
+router assumed one reading of an ambiguous word, and the renderer assumed
+one shape of answer. Neither assumption was written down anywhere, which is
+why neither was tested. The correction that generalises is that an answer is
+not just a correct value — it is a correct value *in the position the
+question puts it*.
 
 ## Smaller ones, recorded for completeness
 

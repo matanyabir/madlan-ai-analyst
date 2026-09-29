@@ -90,7 +90,26 @@ const ANOMALY = /חריג|יוצא דופן|מוזר|לא הגיוני|אנומ�
 const COMPARABLE = /דומ(?:ה|ות|ים)|השוו(?:ה|את)\s+ל?נכס|כמו ה?דירה|עסקאות דומות/u;
 const COMPARE = /תשווה|להשוות|השווה|מול|לעומת|יותר יקר|יותר זול/u;
 const TREND = /השתנה|מגמה|לאורך זמן|לאורך השנים|התפתחות|עלה|ירד|היסטורי|לפי חודש|לפי שנה/u;
-const COUNT = /כמה|מספר ה?עסקאות|ספירה/u;
+/**
+ * "כמה" is ambiguous in Hebrew: "how many" *and* "how much".
+ *
+ * "כמה עסקאות יש ברמת גן"   -> how many, a count
+ * "כמה עולה דירת גן ממוצעת" -> how much, a price
+ *
+ * Matching "כמה" alone turned every price question into a transaction
+ * count. PRICE is therefore tested first, and COUNT requires something
+ * countable rather than the bare interrogative.
+ */
+const PRICE = /עולה|עולות|עולים|עלות|מחיר|כמה שווה|יקר|זול|תקציב|ממוצע|חציון/u;
+const COUNT = /כמה\s+\S*\s*(עסקאות|דירות|נכסים|בתים)|מספר\s+ה?(עסקאות|דירות|נכסים)|ספירה|כמה יש/u;
+
+/**
+ * An explicit per-square-metre request overrides the default deal price.
+ *
+ * No \b anchors here: Hebrew letters are not \w in JavaScript regex, so a
+ * word boundary after ר never matches the way it reads.
+ */
+const PER_SQM = /למ["״׳']{0,2}ר|למטר|לכל מטר|מטר רבוע|מ["״]ר/u;
 const LIST = /הראה|תראה|רשימה|אילו עסקאות|תן לי עסקאות/u;
 
 /**
@@ -151,7 +170,17 @@ export function fallbackRoute(snapshot: Snapshot, question: string): ToolCall {
   }
 
   if (TREND.test(q)) {
+    // Trends normalise for size, so per-m² is the right default here even
+    // when the question just says "מחיר".
     return { name: "get_time_series", input: { filters, metric: "price_per_sqm" } };
+  }
+
+  // Price before count, because "כמה עולה" matches both.
+  if (PRICE.test(q)) {
+    return {
+      name: "get_statistics",
+      input: { filters, metric: PER_SQM.test(q) ? "price_per_sqm" : "price" },
+    };
   }
 
   if (COUNT.test(q)) {

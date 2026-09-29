@@ -74,6 +74,43 @@ describe("forecast questions are declined, using the data's own horizon", () => 
   });
 });
 
+describe('"כמה" means both "how many" and "how much"', () => {
+  // A price question that begins with כמה used to route to metric=count and
+  // answer "how much does an average garden flat cost" with a transaction
+  // count. See docs/AI_LOG.md #9.
+  it.each([
+    ["כמה עולה דירת גן ממוצעת", "price"],
+    ["כמה עולה דירה ברמת גן", "price"],
+    ["מה המחיר הממוצע ברמת גן", "price"],
+    ["כמה שווה פנטהאוז בנתניה", "price"],
+  ])("%s asks how much -> %s", (q, metric) => {
+    const call = fallbackRoute(snap, q);
+    expect(call.name).toBe("get_statistics");
+    expect(call.input).toMatchObject({ metric });
+  });
+
+  it.each([
+    "כמה עסקאות של 4 חדרים יש ברמת גן?",
+    "כמה דירות נמכרו בחולון",
+    "מספר העסקאות בנתניה",
+  ])("%s asks how many -> count", (q) => {
+    expect(fallbackRoute(snap, q).input).toMatchObject({ metric: "count" });
+  });
+
+  it.each([
+    'מה המחיר למ"ר בגבעתיים',
+    "מה המחיר למ״ר בגבעתיים",
+    "כמה עולה מטר רבוע בחיפה",
+  ])("%s explicitly asks per-sqm", (q) => {
+    expect(fallbackRoute(snap, q).input).toMatchObject({ metric: "price_per_sqm" });
+  });
+
+  it("still extracts the property type from a price question", () => {
+    expect(fallbackRoute(snap, "כמה עולה דירת גן ממוצעת").input)
+      .toMatchObject({ filters: { propertyType: "דירת גן" } });
+  });
+});
+
 describe("fallbackRoute entity extraction", () => {
   it("resolves city shorthands the canonical list does not contain", () => {
     expect(fallbackRoute(snap, 'כמה עסקאות יש בת"א?').input)
