@@ -12,6 +12,7 @@ export function LogoutButton() {
       data-testid="logout"
       onClick={async () => {
         await fetch("/api/auth/logout", { method: "POST" });
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a soft navigation can serve a cached signed-in page after sign-out.
         window.location.assign("/");
       }}
       className="text-muted hover:underline"
