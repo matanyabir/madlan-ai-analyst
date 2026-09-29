@@ -2,8 +2,9 @@
 
 The brief asks for a short log of how this was built with AI assistance,
 "including at least one time it gave you a bad answer and you caught it".
-There are four, and they are recorded as they happened rather than
-reconstructed at the end.
+There are five, and they are recorded as they happened rather than
+reconstructed at the end. The most interesting one is #5, where the bad
+answer came from a tool I had just written myself.
 
 ## Tools
 
@@ -112,6 +113,55 @@ and produced confusing type errors much later.
 **Fix.** Bumped `@types/node` to `^24`. Worth logging because reaching for the
 flag that makes an error message disappear is the most common way AI-assisted
 setup goes quietly wrong.
+
+## Bad answer #5 — my own profiler hid a defect behind a wrong label
+
+This is the one worth reading.
+
+**What happened.** `scripts/profile-csv.ts` reported *"`price_nis` empty: 12"*
+and listed the ids. I wrote that straight into `DATA_QUALITY.md` as "12 rows
+have no price, all 12 recoverable as `size × price_per_sqm`", and built a
+price-derivation branch into the normalizer to handle them.
+
+**How it was caught.** The pipeline test asserting 12 derived prices failed
+with `expected undefined to be 12` — the normalizer had derived *nothing*.
+Two components that should have agreed did not, so one of them was wrong.
+
+Looking at the actual cells:
+
+```
+D100468 | price_nis = "₪12,144,000"
+D100417 | price_nis = "₪1,884,000"
+...ten more
+```
+
+**None of those prices were missing.** They carry a shekel sign. The
+profiler's numeric parser stripped commas but not `₪`, got `NaN`, returned
+`null` — and its caller labelled `null` as "empty". The normalizer's parser
+*did* strip `₪`, read all twelve correctly, and so had nothing to derive.
+The normalizer was right; my documentation and my profiler were both wrong.
+
+**Why it mattered — the defect was hiding a second defect.** Once the twelve
+prices parsed, they became comparable against their stated `price_per_sqm`,
+and one of them — `D100417`, stated ₪19,528/m² against a computed ₪17,284 —
+turned out to be a **28th `price_per_sqm` conflict**. The count in
+`DATA_QUALITY.md` §7 had been 27 for exactly as long as one price was
+unreadable. An unparseable field does not just lose its own value; it
+silently removes the row from every check that depends on it.
+
+**Fix.** `parseNumber` now reports `hadCurrencySymbol` so the strip is logged
+and visible in the admin log rather than absorbed. The profiler distinguishes
+`blank()` from unparseable and reports the two separately — the label was the
+actual bug, not the regex. `DATA_QUALITY.md` §6 was rewritten, and both counts
+are now assertions in `pipeline.test.ts`.
+
+**The lesson.** A derivation branch built on a false premise looked like
+careful engineering and would have survived review; it was dead code guarding
+a problem that did not exist. What caught it was having two independent
+implementations of the same parse and a test that forced them to agree. If
+the pipeline had simply trusted the profiler's summary, the app would have
+shipped with a wrong conflict count and twelve prices reconstructed from a
+derived field instead of read from the source.
 
 ---
 

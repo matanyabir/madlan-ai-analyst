@@ -162,6 +162,16 @@ export function normalizeRow(raw: RawRow, rowNumber: number): NormalizedRow {
   const priceParse = parseNumber(raw.price_nis);
   const ppsParse = parseNumber(raw.price_per_sqm);
 
+  if (priceParse.hadCurrencySymbol) {
+    issue(
+      "price_nis",
+      "price_currency_symbol_stripped",
+      "info",
+      raw.price_nis ?? "",
+      String(priceParse.value),
+      "המחיר נשמר עם סימן ₪ בתוך השדה",
+    );
+  }
   if (priceParse.hadSeparators) {
     issue(
       "price_nis",

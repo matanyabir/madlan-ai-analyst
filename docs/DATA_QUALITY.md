@@ -95,28 +95,37 @@ and carry `datePrecision: "month"`. They are included in monthly aggregates
 (where the day is irrelevant) and excluded from anything day-level. Inventing
 a day and hiding the fact would be the easy wrong answer.
 
-## 6. Prices: separators, gaps, zeros, and one impossibility
+## 6. Prices: separators, a currency sign, a zero, and one impossibility
 
 | Problem | Count | Detail |
 |---|---|---|
 | Thousands separators | 56 | `"4,331,000"` — parses to `NaN` unguarded |
-| Empty `price_nis` | 12 | all 12 recoverable as `size_sqm × price_per_sqm` |
+| **`₪` inside the field** | **12** | `"₪12,144,000"` — see below |
 | Zero `price_nis` | 1 | `D100251` |
 | Zero `price_per_sqm` | 2 | |
 | Empty `price_per_sqm` | 10 | |
+| Empty `size_sqm` | 10 | |
 | Implausible price | 1 | `D100317` — ₪18,000 for a 132 m² flat in רחובות, stated `price_per_sqm` of `0` |
 
-**Decisions:** strip separators before parsing. Derive the 12 missing prices
-from the other two fields and mark them `derived`. Quarantine the zero and the
-implausible row — `D100317` is not a real ₪18,000 sale, but this app has no
-authority to say what the real number was, so it is excluded from statistics
-and kept in the record.
+**No price is actually missing.** That is worth stating plainly, because the
+first version of the profiler reported twelve as empty. They are not empty —
+they carry a shekel sign, and a parser that strips only commas returns `null`
+for them. Stripping `₪` as well recovers all twelve exactly, which is better
+than reconstructing them from `size × price_per_sqm`: the real figure beats a
+derived one. It also surfaced a 28th `price_per_sqm` conflict (§7) that was
+invisible while the price itself could not be read.
+
+**Decisions:** strip separators, whitespace and `₪` before parsing, and log
+the currency strip so it is visible in the admin log rather than silently
+absorbed. Quarantine the zero and the implausible row — `D100317` is not a
+real ₪18,000 sale, but this app has no authority to say what the real number
+was, so it is excluded from statistics and kept in the record.
 
 Price range after cleaning: ₪492,000 – ₪44,000,000.
 
 ## 7. `price_per_sqm` contradicts `price_nis / size_sqm` — 27 rows
 
-**27 of the 506 rows** that have all three fields disagree by more than 2%.
+**28 of the 518 rows** that have all three fields disagree by more than 2%.
 The disagreement is large: ratios run from **0.72× to 1.27×**. Examples:
 
 | Deal | `price_nis` | `size_sqm` | stated `price_per_sqm` | computed | ratio |
@@ -124,12 +133,17 @@ The disagreement is large: ratios run from **0.72× to 1.27×**. Examples:
 | `D100178` | 3,586,000 | 65 | 68,592 | 55,169 | 1.24× |
 | `D100328` | 13,549,000 | 246 | 40,950 | 55,077 | 0.74× |
 | `D100444` | 5,406,000 | 120 | 35,385 | 45,050 | 0.79× |
+| `D100417` | ₪1,884,000 | 109 | 19,528 | 17,284 | 1.13× |
 
 **Decision:** `price_nis` and `size_sqm` are the primary observations;
 `price_per_sqm` is derived from them and should be redundant. Where they
 disagree, **recompute** — the analytic field is always `price_nis / size_sqm`.
 The stated value is preserved as `pricePerSqmRaw` and every conflict is logged.
-A 27-row silent discrepancy in the headline metric is exactly the sort of thing
+`D100417` is in that table deliberately: it is the row that only became
+visible once the `₪` sign was handled (§6), and it is a reminder that defects
+hide behind each other.
+
+A 28-row silent discrepancy in the headline metric is exactly the sort of thing
 that makes a median wrong by a few percent with no visible symptom.
 
 ## 8. Duplicate deal IDs — 10 ids, and they are not all the same kind
@@ -172,7 +186,7 @@ the evidence panel says when a query excluded one.
 | `condition` | 16 | |
 | `neighborhood` | 11 | city-level analysis only |
 | `size_sqm` | 10 | no price-per-m² |
-| `price_per_sqm` | 10 | recomputed where possible |
+| `price_per_sqm` | 10 | recomputed from price ÷ size |
 
 **Decision:** `null`, never a zero or an empty string standing in for one.
 Every analysis tool reports how many rows it dropped and why, and that count
@@ -199,8 +213,8 @@ would quietly change medians. Logged as an open question rather than guessed.
 | Raw CSV | 530 |
 | − identical duplicates collapsed | −6 |
 | − conflicting duplicate rows held out of aggregates | −8 (4 pairs) |
-| − quarantined for unusable price | −2 |
-| **Analysable** | **~514** |
+| − quarantined for unusable price or size | −12 |
+| **Analysable** | **504** |
 
 The pipeline computes these figures; they are not hardcoded, and the UI shows
 the real number for every query.

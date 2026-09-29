@@ -22,12 +22,25 @@ const parsed = Papa.parse<Row>(readFileSync(CSV_PATH, "utf8").replace(/^﻿/, ""
 });
 const rows = parsed.data;
 
-/** Parses a raw numeric cell the way a naive reader would: strip commas, coerce. */
+/**
+ * Parses a raw numeric cell, stripping thousands separators and the shekel
+ * sign. Twelve prices in the sample carry a ₪ prefix.
+ *
+ * An earlier version of this function did not strip ₪ and returned null for
+ * those cells, which its caller then reported as "empty". That label was
+ * wrong and it hid a real conflict — see docs/AI_LOG.md #5. `blank()` below
+ * now distinguishes the two cases explicitly.
+ */
 function num(raw: string | undefined): number | null {
-  const cleaned = (raw ?? "").trim().replace(/,/g, "");
+  const cleaned = (raw ?? "").trim().replace(/[,\s₪]/g, "");
   if (cleaned === "") return null;
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
+}
+
+/** True only when the cell is genuinely empty, not merely unparseable. */
+function blank(raw: string | undefined): boolean {
+  return (raw ?? "").trim() === "";
 }
 
 function counter(values: string[]): Map<string, number> {
@@ -138,22 +151,26 @@ say();
 // ------------------------------------------------------------ numeric sanity
 say("## Numeric sanity");
 say();
-const noPrice = rows.filter((r) => num(r.price_nis) === null);
+const blankPrice = rows.filter((r) => blank(r.price_nis));
 const zeroPrice = rows.filter((r) => num(r.price_nis) === 0);
 const commaPrice = rows.filter((r) => (r.price_nis ?? "").includes(","));
-say(`- \`price_nis\` empty: **${noPrice.length}** (${noPrice.map((r) => r.deal_id).join(", ")})`);
+const currencyPrice = rows.filter((r) => (r.price_nis ?? "").includes("₪"));
+const unparseablePrice = rows.filter((r) => !blank(r.price_nis) && num(r.price_nis) === null);
+
+say(`- \`price_nis\` genuinely empty: **${blankPrice.length}**`);
 say(`- \`price_nis\` zero: **${zeroPrice.length}** (${zeroPrice.map((r) => r.deal_id).join(", ")})`);
 say(`- \`price_nis\` with thousands separators: **${commaPrice.length}**`);
-
-const recoverable = noPrice.filter((r) => num(r.size_sqm) && num(r.price_per_sqm));
 say(
-  `- …of the empty prices, **${recoverable.length}** are recoverable as \`size_sqm × price_per_sqm\`, ` +
-    `**${noPrice.length - recoverable.length}** are not`,
+  `- \`price_nis\` with a ₪ sign inside the field: **${currencyPrice.length}** ` +
+    `(${currencyPrice.slice(0, 3).map((r) => `\`${r.price_nis}\``).join(", ")}…)`,
 );
+say(`- \`price_nis\` non-empty but unparseable after cleaning: **${unparseablePrice.length}**`);
 
 const zeroPps = rows.filter((r) => num(r.price_per_sqm) === 0);
-const noPps = rows.filter((r) => num(r.price_per_sqm) === null);
-say(`- \`price_per_sqm\` zero: **${zeroPps.length}**, empty: **${noPps.length}**`);
+const blankPps = rows.filter((r) => blank(r.price_per_sqm));
+const blankSize = rows.filter((r) => blank(r.size_sqm));
+say(`- \`price_per_sqm\` zero: **${zeroPps.length}**, empty: **${blankPps.length}**`);
+say(`- \`size_sqm\` empty: **${blankSize.length}**`);
 
 // stated price_per_sqm vs price / size
 const DEVIATION_THRESHOLD = 0.02;

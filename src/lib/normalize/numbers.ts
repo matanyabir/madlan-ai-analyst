@@ -4,24 +4,30 @@ export interface NumberParse {
   value: number | null;
   /** True when separators had to be stripped — worth logging. */
   hadSeparators: boolean;
+  /** True when a ₪ sign had to be stripped. 12 prices carry one. */
+  hadCurrencySymbol: boolean;
   /** True when the cell was non-empty but could not be parsed at all. */
   unparseable: boolean;
 }
 
 export function parseNumber(raw: string | undefined | null): NumberParse {
-  if (raw == null) return { value: null, hadSeparators: false, unparseable: false };
+  const EMPTY = {
+    value: null, hadSeparators: false, hadCurrencySymbol: false, unparseable: false,
+  };
+  if (raw == null) return EMPTY;
   const trimmed = raw.trim();
-  if (trimmed === "") return { value: null, hadSeparators: false, unparseable: false };
+  if (trimmed === "") return EMPTY;
 
   const hadSeparators = trimmed.includes(",");
-  // Strip thousands separators and any currency symbol, keep sign and decimal point.
+  const hadCurrencySymbol = trimmed.includes("₪");
+  // Strip thousands separators and the shekel sign; keep sign and decimal point.
   const cleaned = trimmed.replace(/[,\s₪]/g, "");
   const value = Number(cleaned);
 
   if (!Number.isFinite(value)) {
-    return { value: null, hadSeparators, unparseable: true };
+    return { value: null, hadSeparators, hadCurrencySymbol, unparseable: true };
   }
-  return { value, hadSeparators, unparseable: false };
+  return { value, hadSeparators, hadCurrencySymbol, unparseable: false };
 }
 
 /**

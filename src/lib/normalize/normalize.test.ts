@@ -67,8 +67,16 @@ describe("parseBoolean — all eight representations in the CSV", () => {
 
 describe("parseNumber", () => {
   it("strips thousands separators (56 rows in the CSV)", () => {
-    expect(parseNumber('4,331,000')).toEqual({
-      value: 4331000, hadSeparators: true, unparseable: false,
+    expect(parseNumber("4,331,000")).toEqual({
+      value: 4331000, hadSeparators: true, hadCurrencySymbol: false, unparseable: false,
+    });
+  });
+
+  it("strips a shekel sign (12 rows in the CSV)", () => {
+    // These were reported as "missing prices" by a parser that stripped only
+    // commas. They are not missing. See docs/AI_LOG.md #5.
+    expect(parseNumber("₪12,144,000")).toEqual({
+      value: 12144000, hadSeparators: true, hadCurrencySymbol: true, unparseable: false,
     });
   });
 
@@ -78,7 +86,9 @@ describe("parseNumber", () => {
   });
 
   it("distinguishes empty from unparseable", () => {
-    expect(parseNumber("")).toEqual({ value: null, hadSeparators: false, unparseable: false });
+    expect(parseNumber("")).toEqual({
+      value: null, hadSeparators: false, hadCurrencySymbol: false, unparseable: false,
+    });
     expect(parseNumber("לא ידוע").unparseable).toBe(true);
   });
 
@@ -247,6 +257,16 @@ describe("normalizeRow", () => {
   it("stays silent when the stated value agrees within 2%", () => {
     const { issues } = normalizeRow({ ...base, price_per_sqm: "27763" }, 3);
     expect(issues.filter((i) => i.type === "price_per_sqm_conflict")).toHaveLength(0);
+  });
+
+  it("logs the currency strip so it is visible in the admin log", () => {
+    const { deal, issues } = normalizeRow(
+      { ...base, deal_id: "D100468", price_nis: "₪12,144,000", size_sqm: "173" },
+      11,
+    );
+    expect(deal.priceNis).toBe(12_144_000);
+    expect(deal.priceDerived).toBe(false);
+    expect(issues.some((i) => i.type === "price_currency_symbol_stripped")).toBe(true);
   });
 
   it("derives a missing price from size x stated price_per_sqm", () => {

@@ -337,12 +337,14 @@ Rows: **530**  ·  Columns: **19**
 
 ## Numeric sanity
 
-- `price_nis` empty: **12** (D100468, D100417, D100484, D100381, D100377, D100150, D100356, D100179, D100168, D100329, D100412, D100383)
+- `price_nis` genuinely empty: **0**
 - `price_nis` zero: **1** (D100251)
 - `price_nis` with thousands separators: **56**
-- …of the empty prices, **12** are recoverable as `size_sqm × price_per_sqm`, **0** are not
+- `price_nis` with a ₪ sign inside the field: **12** (`₪12,144,000`, `₪1,884,000`, `₪2,217,000`…)
+- `price_nis` non-empty but unparseable after cleaning: **0**
 - `price_per_sqm` zero: **2**, empty: **10**
-- `price_per_sqm` disagrees with `price_nis / size_sqm` by >2%: **27 of 506** (ratio 0.72× – 1.27×)
+- `size_sqm` empty: **10**
+- `price_per_sqm` disagrees with `price_nis / size_sqm` by >2%: **28 of 518** (ratio 0.72× – 1.27×)
 - `size_sqm`: 520 parseable, min 21, max 310
 - `floor`: 506 parseable, min 0, max 20
 - `total_floors`: 530 parseable, min 2, max 20

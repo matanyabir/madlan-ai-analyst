@@ -70,6 +70,7 @@ export type IssueType =
   | "date_missing_day"
   | "date_unparseable"
   | "price_separators_stripped"
+  | "price_currency_symbol_stripped"
   | "price_derived"
   | "price_missing"
   | "price_zero"
