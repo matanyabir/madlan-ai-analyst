@@ -19,6 +19,41 @@ test.describe("login", () => {
     expect(page.url()).not.toContain("password");
   });
 
+  test("lands on /admin when redirected there first, not back on login", async ({ page }) => {
+    /*
+     * The real user flow, and the one a fresh-context test misses: visit
+     * /admin, get bounced to /login?next=/admin, then sign in. That first
+     * bounce puts a logged-out /admin in Next's client router cache, so a
+     * soft navigation after login could be served from it — landing the user
+     * back on /login looking like the sign-in silently failed.
+     */
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
+
+    await page.getByTestId("email").fill("admin@madlan.test");
+    await page.getByTestId("password").fill("admin-e2e-password");
+    await page.getByTestId("login-submit").click();
+
+    await expect(page).toHaveURL(/\/admin$/);
+    await expect(page.getByRole("heading", { name: "ניהול נתונים" })).toBeVisible();
+    await expect(page.getByTestId("login-form")).toHaveCount(0);
+  });
+
+  test("signing out actually signs out, with no cached admin page left", async ({ page }) => {
+    await page.goto("/login");
+    await page.getByTestId("email").fill("admin@madlan.test");
+    await page.getByTestId("password").fill("admin-e2e-password");
+    await page.getByTestId("login-submit").click();
+    await expect(page).toHaveURL(/\/admin$/);
+
+    await page.getByTestId("logout").click();
+    await expect(page).toHaveURL(/:\d+\/$/);
+
+    // The cached admin page must not survive the session that produced it.
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/login/);
+  });
+
   test("sends a regular user to the analyst, not the admin page", async ({ page }) => {
     await page.goto("/login?next=%2Fadmin");
     await page.getByTestId("email").fill("user@madlan.test");

@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 export function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/admin";
 
@@ -30,13 +29,25 @@ export function LoginForm() {
         setError(body.error ?? "ההתחברות נכשלה");
         return;
       }
-      // Replace so Back does not land on the login form post-login.
-      // The destination is the one the server vetted, not the raw ?next.
-      router.replace(body.next ?? (body.role === "admin" ? "/admin" : "/"));
-      router.refresh();
+      /*
+       * A full page load, not router.replace().
+       *
+       * Signing in changes server-rendered state on every route, and a soft
+       * navigation can be served from Next's client-side router cache — so
+       * the browser can land on a version of /admin rendered before the
+       * session existed, get bounced by proxy.ts, and end up back on
+       * /login?next=/admin looking like the login silently failed.
+       * router.refresh() is meant to cover that but it is asynchronous and
+       * races the navigation.
+       *
+       * location.assign discards the client cache entirely and issues a real
+       * request carrying the cookie that was just set. It costs one page
+       * load, on the one navigation in the app where correctness beats
+       * smoothness.
+       */
+      window.location.assign(body.next ?? (body.role === "admin" ? "/admin" : "/"));
     } catch {
       setError("לא הצלחנו להתחבר לשרת");
-    } finally {
       setBusy(false);
     }
   }
