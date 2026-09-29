@@ -25,7 +25,13 @@ export default defineConfig({
         env: {
           AUTH_SECRET: "e2e-test-secret-not-for-production-use-0123456789",
           ADMIN_EMAIL: "admin@madlan.test",
+          ADMIN_PASSWORD: "admin-e2e-password",
           USER_EMAIL: "user@madlan.test",
+          USER_PASSWORD: "user-e2e-password",
+          // Deliberately absent: the e2e suite runs against a server with no
+          // model, which is how constraint 6 ("survive the model being
+          // unavailable") gets tested rather than asserted.
+          ANTHROPIC_API_KEY: "",
         },
       },
 });
