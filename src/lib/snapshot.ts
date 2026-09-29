@@ -1,4 +1,5 @@
 import type { Snapshot } from "@/lib/types";
+import { serverState } from "@/lib/serverState";
 import baked from "../../data/snapshot.json";
 
 /**
@@ -14,30 +15,33 @@ import baked from "../../data/snapshot.json";
  * says so, and offers the rebuilt snapshot as a download to commit. Replacing
  * this module with a Postgres-backed loader is the documented next step.
  */
-let active: Snapshot = baked as unknown as Snapshot;
-
-/** Set when a runtime upload has replaced the baked snapshot on this instance. */
-let uploadedAt: string | null = null;
+const BAKED = baked as unknown as Snapshot;
 
 export function getSnapshot(): Snapshot {
-  return active;
+  // Held on globalThis, not in a module-level `let`: Server Components and
+  // Route Handlers are separate module graphs, so the page would otherwise
+  // keep rendering the committed snapshot after an upload replaced it.
+  return serverState().snapshot ?? BAKED;
 }
 
 export function setSnapshot(next: Snapshot): void {
-  active = next;
-  uploadedAt = new Date().toISOString();
+  const state = serverState();
+  state.snapshot = next;
+  state.uploadedAt = new Date().toISOString();
 }
 
 export function resetSnapshot(): void {
-  active = baked as unknown as Snapshot;
-  uploadedAt = null;
+  const state = serverState();
+  state.snapshot = null;
+  state.uploadedAt = null;
 }
 
 export function snapshotOrigin(): { origin: "baked" | "uploaded"; at: string | null } {
+  const { uploadedAt } = serverState();
   return { origin: uploadedAt ? "uploaded" : "baked", at: uploadedAt };
 }
 
 /** Only the rows that may appear in an aggregate. */
 export function analyzableDeals() {
-  return active.deals.filter((d) => d.isAnalyzable);
+  return getSnapshot().deals.filter((d) => d.isAnalyzable);
 }

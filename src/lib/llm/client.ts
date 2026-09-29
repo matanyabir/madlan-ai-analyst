@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { serverState } from "@/lib/serverState";
 
 /**
  * Claude Haiku 4.5.
@@ -67,16 +68,18 @@ export const NARRATOR_TIMEOUT_MS = Number(process.env.LLM_NARRATOR_TIMEOUT_MS ??
  * questions still get answered by the deterministic path — which is easier
  * to believe than a paragraph claiming it works.
  */
-let aiEnabled = true;
-
 export function isAiEnabled(): boolean {
-  return aiEnabled;
+  // On globalThis rather than a module-level `let` — the admin page is a
+  // Server Component and the toggle endpoint is a Route Handler, and those
+  // are separate module graphs. A plain variable makes the switch work while
+  // the panel shows the opposite state.
+  return serverState().aiEnabled;
 }
 
 /** Returns the new state. */
 export function setAiEnabled(next: boolean): boolean {
-  aiEnabled = next;
-  return aiEnabled;
+  serverState().aiEnabled = next;
+  return next;
 }
 
 let client: Anthropic | null = null;
@@ -86,7 +89,7 @@ let client: Anthropic | null = null;
  * off — the app then runs entirely deterministically.
  */
 export function getClient(): Anthropic | null {
-  if (!aiEnabled) return null;
+  if (!isAiEnabled()) return null;
   if (!process.env.ANTHROPIC_API_KEY) return null;
   client ??= new Anthropic({
     // One retry, and only for the transient classes. A schema failure is not
@@ -97,7 +100,7 @@ export function getClient(): Anthropic | null {
 }
 
 export function llmAvailable(): boolean {
-  return aiEnabled && Boolean(process.env.ANTHROPIC_API_KEY);
+  return isAiEnabled() && Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
 /** True when a key exists but an admin has turned the model off. */

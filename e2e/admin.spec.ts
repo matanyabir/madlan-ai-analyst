@@ -124,6 +124,28 @@ test.describe("the AI kill switch", () => {
     expect(status).toBe(400);
   });
 
+  test("the home page badge agrees with the switch", async ({ page }) => {
+    // Regression: the toggle worked while the admin panel and the home page
+    // both kept showing the previous state, because each module graph had
+    // its own copy of the flag.
+    await page.evaluate(async () => {
+      await fetch("/api/admin/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      });
+    });
+
+    await page.goto("/");
+    await expect(page.getByTestId("ai-status-badge")).toHaveAttribute("data-enabled", "false");
+
+    await page.goto("/admin");
+    const button = page.getByTestId("ai-toggle-button");
+    if (await button.count()) {
+      await expect(button).toHaveAttribute("data-enabled", "false");
+    }
+  });
+
   test("turning it off still answers every question", async ({ page }) => {
     // The switch is the demo: with the model off, the product keeps working.
     await page.evaluate(async () => {
@@ -210,6 +232,32 @@ test.describe("the admin upload", () => {
     await page.getByTestId("file-input").setInputFiles(CSV);
     await expect(page.getByTestId("upload-result")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText("לא נדרשה התערבות של AI")).toBeVisible();
+  });
+
+  test("the home page reflects an upload immediately", async ({ page }) => {
+    /*
+     * Regression: Server Components and Route Handlers are separate module
+     * graphs, so the upload replaced the snapshot for the API while the home
+     * page kept rendering the committed one — advertising 505 deals while
+     * questions used a different dataset.
+     */
+    await page.getByTestId("file-input").setInputFiles({
+      name: "small.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(
+        [
+          "deal_id,city,neighborhood,street,property_type,rooms,size_sqm,floor,total_floors,year_built,condition,has_elevator,has_parking,has_balcony,has_safe_room,deal_date,price_nis,price_per_sqm,source",
+          "D1,רמת גן,מרכז,ביאליק,דירה,4,100,2,8,2000,שמור,כן,כן,כן,כן,2025-01-01,3000000,30000,מתווך",
+          "D2,רמת גן,מרכז,ביאליק,דירה,3,80,1,8,2000,שמור,כן,כן,כן,כן,2025-02-01,2400000,30000,מתווך",
+        ].join("\n"),
+      ),
+    });
+    await expect(page.getByTestId("upload-result")).toBeVisible({ timeout: 30_000 });
+
+    await page.goto("/");
+    const header = page.locator("header");
+    await expect(header).toContainText("2");
+    await expect(header).not.toContainText("505");
   });
 
   test("is honest that the upload does not persist", async ({ page }) => {

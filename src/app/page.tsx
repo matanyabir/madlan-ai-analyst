@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getSnapshot } from "@/lib/snapshot";
 import { Analyst } from "@/components/Analyst";
+import { AiStatusBadge } from "@/components/AiStatusBadge";
+import { llmAvailable } from "@/lib/llm/client";
 import { formatCount, formatRange } from "@/components/format";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +33,8 @@ export default function Home() {
                 מודל השפה מבין את השאלה ומנסח, ולא מחשב.
               </p>
             </div>
-            <nav className="flex shrink-0 gap-3 text-sm">
+            <nav className="flex shrink-0 items-center gap-3 text-sm">
+              <AiStatusBadge enabled={llmAvailable()} />
               <Link href="/browse" className="text-accent hover:underline">עיון</Link>
               <Link href="/admin" className="text-muted hover:underline">ניהול</Link>
             </nav>

@@ -2,7 +2,7 @@
 
 The brief asks for a short log of how this was built with AI assistance,
 "including at least one time it gave you a bad answer and you caught it".
-There are ten, and they are recorded as they happened rather than
+There are eleven, and they are recorded as they happened rather than
 reconstructed at the end. The ones worth reading: #5, where the bad answer
 came from a tool I had written an hour earlier; #6, where correct code
 produced a false statement; #7, which a full green test suite could not have
@@ -418,6 +418,61 @@ and a cost model that no one could contradict without spending money. The
 third was invisible because the parameter looked innocuous. Nothing here was
 found by reasoning about the code — all three needed a real key and a real
 request. *An untested integration is a hypothesis, however well documented.*
+
+## Bad answer #11 — one server disagreeing with itself
+
+**What happened.** Reported as *"I turn the AI off, navigate away, come back,
+and it's on again."* It was not turning back on. Checked directly:
+
+```
+POST /api/admin/ai  {enabled:false}   -> false
+GET  /api/admin/ai                    -> false   ✓
+GET  /api/health                      -> false   ✓
+GET  /admin        (the page)         -> TRUE    ✗
+actual question routing               -> deterministic   ✓
+```
+
+The switch worked. Questions really were using the fallback. Only the panel
+displaying the switch was wrong — so the one surface whose job is to report
+the state was the one surface that could not see it.
+
+**The cause.** Next bundles **Server Components and Route Handlers into
+separate module graphs**. A module-level `let` is therefore not one
+variable: each graph gets its own copy. Writes from the route handler are
+invisible to the page, and nothing warns you.
+
+**It was already corrupting something more important.** The same pattern
+holds the active snapshot. Uploading a 59-row CSV:
+
+```
+upload reports analyzable   56
+/api/health reports         56
+home page header advertises 505   ✗
+questions actually use      56
+```
+
+The home page had been telling visitors it was analysing 505 transactions
+while answering from 56. That shipped, and nobody noticed, because the
+admin flow and the home page were never checked in the same breath.
+
+**Fix.** Both now live on `globalThis` under `Symbol.for("madlan.serverState")`,
+which every module graph in the process resolves to the same object — the
+same reason a database client is a global singleton in Next. It does not
+make state shared across serverless *instances*; that still needs Postgres
+and remains the documented next step. What it fixes is the worse problem of
+one instance disagreeing with itself.
+
+**The lesson.** The bug was invisible to every test because each test
+exercised one surface. The upload tests asserted the upload response; the
+home-page tests asserted the home page; neither crossed the boundary where
+the state actually splits. *Mutable state needs a test that writes through
+one door and reads through another* — that is now exactly what
+`serverState.test.ts` and two new e2e tests do.
+
+It also reframes the "instance-local" caveat in the README. I had written it
+as a limitation of scale — other instances won't see your upload. The real
+limitation was smaller and sharper: **a single instance did not see its own
+upload consistently.**
 
 ## Smaller ones, recorded for completeness
 

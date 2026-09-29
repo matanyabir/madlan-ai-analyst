@@ -22,6 +22,15 @@ test.describe("the analyst page", () => {
     await expect(page.getByText("505", { exact: false }).first()).toBeVisible();
   });
 
+  test("shows whether the language model is in use", async ({ page }) => {
+    // The e2e server has no key, so the badge must say so rather than imply
+    // the product is broken.
+    const badge = page.getByTestId("ai-status-badge");
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveAttribute("data-enabled", "false");
+    await expect(badge).toContainText("מנוע שפה כבוי");
+  });
+
   test("offers the example prompts before anything is asked", async ({ page }) => {
     await expect(page.getByTestId("example-prompt")).toHaveCount(5);
   });

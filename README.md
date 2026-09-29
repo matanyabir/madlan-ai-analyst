@@ -7,7 +7,7 @@ on.
 
 **Live:** <https://madlan-ai-analyst.vercel.app>
 **Stack:** Next.js 16 · TypeScript · Tailwind 4 · Recharts · Claude Haiku 4.5 (configurable)
-**Tests:** 252 unit (Vitest) · 39 end-to-end (Playwright)
+**Tests:** 269 unit (Vitest) · 48 end-to-end (Playwright)
 
 ---
 
@@ -298,6 +298,12 @@ With Postgres the distinction disappears: the upload writes, everything
 reads, and the seed is just the first write.
 
 
+All runtime state — the active snapshot and the model kill switch — lives on
+`globalThis` rather than in module-level variables, because Next bundles
+Server Components and Route Handlers into separate module graphs and a plain
+`let` is two variables, not one. That is a real bug this repo shipped and
+fixed (`docs/AI_LOG.md` #11).
+
 `data/snapshot.json` is committed and imported, so a cold start always has
 good data with no I/O. At 530 rows this is honest engineering rather than a
 shortcut; somewhere around 10⁵ rows it stops being true.
@@ -331,8 +337,8 @@ With no `ANTHROPIC_API_KEY` the app runs entirely on the deterministic path —
 which is the fastest way to see the fallback behaviour.
 
 ```bash
-npm test              # 252 unit tests
-npm run test:e2e      # 39 end-to-end
+npm test              # 269 unit tests
+npm run test:e2e      # 48 end-to-end
 npm run typecheck
 npm run profile           # regenerate docs/CSV_PROFILE.md
 npm run build:snapshot    # rebuild data/snapshot.json from the CSV
