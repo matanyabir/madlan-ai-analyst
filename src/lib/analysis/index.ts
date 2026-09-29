@@ -1,0 +1,366 @@
+import type { Deal, Snapshot } from "@/lib/types";
+import { monthKey, quarterKey } from "@/lib/normalize/dates";
+import { applyFilters, dateRangeOf, type DealFilter } from "./filters";
+import { median, mean, percentile, round } from "./stats";
+import {
+  rankComparables, toDealCard, MIN_COMPARABLES, type SubjectProperty,
+} from "./comparables";
+import { findAnomalies, MIN_PEERS } from "./anomalies";
+import { ANOMALY_THRESHOLD } from "./stats";
+import type { AnalysisResult, Evidence, MetricCard, SeriesPoint } from "./types";
+
+export * from "./types";
+export * from "./filters";
+export * from "./stats";
+export * from "./comparables";
+export * from "./anomalies";
+
+/** Hard ceiling on rows returned to the client and to the model. */
+export const MAX_RESULT_ROWS = 50;
+
+export type MetricName = "price_per_sqm" | "price" | "size" | "count";
+
+const METRIC_META: Record<MetricName, { label: string; unit: MetricCard["unit"]; definition: string }> = {
+  price_per_sqm: {
+    label: "מחיר למ״ר",
+    unit: "nis_per_sqm",
+    definition: "חציון המחיר למ״ר, מחושב כמחיר העסקה חלקי השטח",
+  },
+  price: { label: "מחיר עסקה", unit: "nis", definition: "חציון מחיר העסקה" },
+  size: { label: "שטח", unit: "sqm", definition: "חציון שטח הנכס במ״ר" },
+  count: { label: "מספר עסקאות", unit: "count", definition: "ספירת עסקאות" },
+};
+
+function metricValue(deal: Deal, metric: MetricName): number | null {
+  switch (metric) {
+    case "price_per_sqm": return deal.pricePerSqm;
+    case "price": return deal.priceNis;
+    case "size": return deal.sizeSqm;
+    case "count": return 1;
+  }
+}
+
+function buildEvidence(
+  snapshot: Snapshot,
+  deals: Deal[],
+  descriptions: { label: string; value: string }[],
+  exclusions: { reason: string; count: number }[],
+  metric?: { name: string; definition: string },
+  notes: string[] = [],
+): Evidence {
+  const allNotes = [...notes];
+  const monthOnly = deals.filter((d) => d.datePrecision === "month").length;
+  if (monthOnly) {
+    allNotes.push(`${monthOnly} עסקאות מדווחות ברמת חודש בלבד ללא יום מדויק`);
+  }
+  if (snapshot.counts.conflictRowsHeldOut) {
+    allNotes.push(
+      `${snapshot.counts.conflictGroups} עסקאות דווחו ביותר מגרסה אחת ולא נכללות בחישובים`,
+    );
+  }
+  return {
+    transactionCount: deals.length,
+    dateRange: dateRangeOf(deals),
+    filters: descriptions,
+    metric,
+    exclusions: exclusions.filter((e) => e.count > 0),
+    snapshotVersion: snapshot.version,
+    notes: allNotes,
+  };
+}
+
+function insufficient(
+  snapshot: Snapshot, title: string, message: string,
+  descriptions: { label: string; value: string }[], count: number,
+): AnalysisResult {
+  return {
+    type: "insufficient",
+    title,
+    message,
+    evidence: buildEvidence(snapshot, [], descriptions, [], undefined,
+      count > 0 ? [`נמצאו ${count} עסקאות בלבד`] : []),
+  };
+}
+
+// ---------------------------------------------------------------- statistics
+
+export function getStatistics(
+  snapshot: Snapshot, filters: DealFilter, metric: MetricName = "price_per_sqm",
+): AnalysisResult {
+  const { deals, exclusions, descriptions } = applyFilters(snapshot.deals, filters);
+  if (!deals.length) {
+    return insufficient(snapshot, "אין נתונים",
+      "לא נמצאו עסקאות במאגר התואמות את הסינון המבוקש.", descriptions, 0);
+  }
+
+  const meta = METRIC_META[metric];
+  const values = deals.map((d) => metricValue(d, metric)).filter((v): v is number => v != null);
+
+  const metrics: MetricCard[] = [
+    { label: "מספר עסקאות", value: deals.length, unit: "count" },
+  ];
+
+  if (metric !== "count" && values.length) {
+    metrics.push(
+      { label: `חציון ${meta.label}`, value: round(median(values)), unit: meta.unit,
+        hint: "חציון, לא ממוצע — עמיד יותר לעסקאות קיצון" },
+      { label: `ממוצע ${meta.label}`, value: round(mean(values)), unit: meta.unit },
+      { label: "אחוזון 25", value: round(percentile(values, 0.25)), unit: meta.unit },
+      { label: "אחוזון 75", value: round(percentile(values, 0.75)), unit: meta.unit },
+      { label: "הנמוך ביותר", value: round(Math.min(...values)), unit: meta.unit },
+      { label: "הגבוה ביותר", value: round(Math.max(...values)), unit: meta.unit },
+    );
+  }
+
+  const where = filters.city ? ` ב${filters.city}` : "";
+  return {
+    type: "statistics",
+    title: metric === "count" ? `מספר עסקאות${where}` : `${meta.label}${where}`,
+    metrics,
+    evidence: buildEvidence(snapshot, deals, descriptions, exclusions,
+      { name: meta.label, definition: meta.definition }),
+  };
+}
+
+// --------------------------------------------------------------- time series
+
+/** Below this many deals a month is merged into quarters instead. */
+const MIN_PER_PERIOD = 3;
+
+export function getTimeSeries(
+  snapshot: Snapshot, filters: DealFilter, metric: MetricName = "price_per_sqm",
+  granularity?: "month" | "quarter",
+): AnalysisResult {
+  const { deals, exclusions, descriptions } = applyFilters(snapshot.deals, filters);
+  const dated = deals.filter((d) => d.dealDate);
+
+  if (dated.length < 6) {
+    return insufficient(snapshot, "אין מספיק נתונים למגמה",
+      "אין מספיק עסקאות במאגר כדי להציג מגמה אמינה לאורך זמן.", descriptions, dated.length);
+  }
+
+  const bucket = (g: "month" | "quarter") => {
+    const map = new Map<string, number[]>();
+    for (const d of dated) {
+      const key = g === "month" ? monthKey(d.dealDate!) : quarterKey(d.dealDate!);
+      const v = metricValue(d, metric);
+      if (v == null) continue;
+      const list = map.get(key);
+      if (list) list.push(v);
+      else map.set(key, [v]);
+    }
+    return map;
+  };
+
+  // Choose granularity from the data rather than guessing: if most months are
+  // too thin to produce a meaningful median, fall back to quarters.
+  let chosen: "month" | "quarter" = granularity ?? "month";
+  if (!granularity) {
+    const monthly = bucket("month");
+    const thin = [...monthly.values()].filter((v) => v.length < MIN_PER_PERIOD).length;
+    if (thin > monthly.size / 2) chosen = "quarter";
+  }
+
+  const buckets = bucket(chosen);
+  const points: SeriesPoint[] = [...buckets.entries()]
+    .map(([period, values]) => ({
+      period,
+      value: metric === "count" ? values.length : round(median(values)),
+      n: values.length,
+    }))
+    // Periods with no transactions are absent, never interpolated.
+    .sort((a, b) => a.period.localeCompare(b.period));
+
+  const meta = METRIC_META[metric];
+  const where = filters.city ? ` ב${filters.city}` : "";
+
+  return {
+    type: "timeSeries",
+    title: `${meta.label} לאורך זמן${where}`,
+    metricLabel: metric === "count" ? meta.label : `חציון ${meta.label}`,
+    unit: meta.unit,
+    points,
+    granularity: chosen,
+    evidence: buildEvidence(snapshot, dated, descriptions, exclusions,
+      { name: meta.label, definition: `${meta.definition}. תקופות ללא עסקאות אינן מוצגות` },
+      [chosen === "quarter"
+        ? "הנתונים קובצו לרבעונים כי בחלק מהחודשים אין מספיק עסקאות"
+        : "הנתונים מקובצים לפי חודש"]),
+  };
+}
+
+// ---------------------------------------------------------------- comparison
+
+export function compareLocations(
+  snapshot: Snapshot, cities: string[], metric: MetricName = "price_per_sqm",
+  baseFilters: DealFilter = {},
+): AnalysisResult {
+  const items: { label: string; value: number; n: number }[] = [];
+  const allDeals: Deal[] = [];
+  const exclusions: { reason: string; count: number }[] = [];
+  const thin: string[] = [];
+
+  for (const city of cities) {
+    const { deals, exclusions: ex } = applyFilters(snapshot.deals, { ...baseFilters, city });
+    exclusions.push(...ex);
+    allDeals.push(...deals);
+    const values = deals.map((d) => metricValue(d, metric)).filter((v): v is number => v != null);
+    if (values.length < MIN_COMPARABLES) {
+      thin.push(city);
+      continue;
+    }
+    items.push({
+      label: city,
+      value: metric === "count" ? deals.length : round(median(values)),
+      n: deals.length,
+    });
+  }
+
+  if (items.length < 2) {
+    return insufficient(snapshot, "לא ניתן להשוות",
+      `אין מספיק עסקאות במאגר ב${thin.join(" וב")} כדי להציג השוואה אמינה.`,
+      cities.map((c) => ({ label: "עיר", value: c })), items.length);
+  }
+
+  const meta = METRIC_META[metric];
+  items.sort((a, b) => b.value - a.value);
+
+  return {
+    type: "comparison",
+    title: `${meta.label}: ${items.map((i) => i.label).join(" מול ")}`,
+    metricLabel: metric === "count" ? meta.label : `חציון ${meta.label}`,
+    unit: meta.unit,
+    items,
+    evidence: buildEvidence(snapshot, allDeals,
+      cities.map((c) => ({ label: "עיר", value: c })), exclusions,
+      { name: meta.label, definition: meta.definition },
+      thin.length ? [`${thin.join(", ")} הושמטו — פחות מ-${MIN_COMPARABLES} עסקאות`] : []),
+  };
+}
+
+// ----------------------------------------------------------------- deal list
+
+export function searchTransactions(
+  snapshot: Snapshot, filters: DealFilter, limit = 20,
+  sort: "recent" | "price_desc" | "price_asc" = "recent",
+): AnalysisResult {
+  const { deals, exclusions, descriptions } = applyFilters(snapshot.deals, filters);
+  if (!deals.length) {
+    return insufficient(snapshot, "לא נמצאו עסקאות",
+      "לא נמצאו עסקאות במאגר התואמות את הסינון המבוקש.", descriptions, 0);
+  }
+
+  const sorted = [...deals].sort((a, b) => {
+    if (sort === "price_desc") return (b.priceNis ?? 0) - (a.priceNis ?? 0);
+    if (sort === "price_asc") return (a.priceNis ?? 0) - (b.priceNis ?? 0);
+    return (b.dealDate ?? "").localeCompare(a.dealDate ?? "");
+  });
+
+  const capped = Math.min(limit, MAX_RESULT_ROWS);
+  return {
+    type: "dealList",
+    title: `עסקאות תואמות${filters.city ? ` ב${filters.city}` : ""}`,
+    deals: sorted.slice(0, capped).map((d) => toDealCard(d)),
+    evidence: buildEvidence(snapshot, deals, descriptions, exclusions, undefined,
+      deals.length > capped ? [`מוצגות ${capped} מתוך ${deals.length} עסקאות`] : []),
+  };
+}
+
+// --------------------------------------------------------------- comparables
+
+export function findComparableDeals(
+  snapshot: Snapshot, subject: SubjectProperty, limit = 8,
+): AnalysisResult {
+  const scored = rankComparables(subject, snapshot.deals, Math.min(limit, MAX_RESULT_ROWS));
+
+  const descriptions = [
+    { label: "עיר", value: subject.city },
+    ...(subject.rooms != null ? [{ label: "חדרים", value: String(subject.rooms) }] : []),
+    ...(subject.sizeSqm != null ? [{ label: "שטח", value: `${subject.sizeSqm} מ״ר` }] : []),
+    ...(subject.propertyType ? [{ label: "סוג נכס", value: subject.propertyType }] : []),
+  ];
+
+  if (scored.length < MIN_COMPARABLES) {
+    return insufficient(snapshot, "אין מספיק עסקאות דומות",
+      "אין מספיק עסקאות דומות במאגר כדי להציג השוואה אמינה.", descriptions, scored.length);
+  }
+
+  const notes = [
+    "הדמיון מחושב לפי שטח (30%), חדרים (25%), עדכניות (15%), סוג נכס (15%) ושכונה (15%). העיר היא תנאי סף",
+  ];
+  if (subject.priceNis != null) {
+    const medianPps = median(
+      scored.map((s) => s.deal.pricePerSqm).filter((v): v is number => v != null),
+    );
+    if (subject.sizeSqm) {
+      const subjectPps = subject.priceNis / subject.sizeSqm;
+      const diff = ((subjectPps / medianPps - 1) * 100);
+      notes.push(
+        `המחיר שציינת הוא ₪${Math.round(subjectPps).toLocaleString("he-IL")} למ״ר — ` +
+        `${Math.abs(diff).toFixed(0)}% ${diff >= 0 ? "מעל" : "מתחת"} לחציון העסקאות הדומות שנמצאו`,
+      );
+    }
+  }
+
+  return {
+    type: "dealList",
+    title: `עסקאות דומות ב${subject.city}`,
+    deals: scored.map((s) =>
+      toDealCard(s.deal, {
+        similarity: {
+          score: round(s.score, 3),
+          factors: s.factors.map((f) => ({ label: f.label, contribution: round(f.contribution, 3) })),
+        },
+      }),
+    ),
+    evidence: buildEvidence(snapshot, scored.map((s) => s.deal), descriptions, [],
+      { name: "ציון דמיון", definition: "ציון משוקלל בין 0 ל-1" }, notes),
+  };
+}
+
+// ----------------------------------------------------------------- anomalies
+
+export function getAnomalies(
+  snapshot: Snapshot, filters: DealFilter, limit = 10,
+): AnalysisResult {
+  const { deals, exclusions, descriptions } = applyFilters(snapshot.deals, filters);
+  const { hits, unjudged, peerGroupsUsed } = findAnomalies(deals, Math.min(limit, MAX_RESULT_ROWS));
+
+  if (!hits.length) {
+    return {
+      type: "text",
+      title: "לא נמצאו עסקאות חריגות",
+      body:
+        `נבדקו ${deals.length} עסקאות ב-${peerGroupsUsed} קבוצות השוואה. ` +
+        `לא נמצאה עסקה שסוטה מעל הסף שנקבע מחציון קבוצת ההשוואה שלה.`,
+      evidence: buildEvidence(snapshot, deals, descriptions, [...exclusions, ...unjudged],
+        { name: "חריגות", definition: anomalyDefinition() }),
+    };
+  }
+
+  return {
+    type: "dealList",
+    title: "עסקאות חריגות סטטיסטית",
+    deals: hits.map((h) =>
+      toDealCard(h.deal, {
+        anomaly: {
+          modifiedZ: round(h.modifiedZ, 2),
+          peerMedian: round(h.peerMedian),
+          peerCount: h.peerCount,
+          direction: h.direction,
+        },
+      }),
+    ),
+    evidence: buildEvidence(snapshot, deals, descriptions, [...exclusions, ...unjudged],
+      { name: "חריגות", definition: anomalyDefinition() },
+      ["חריגה משמעה שונות סטטיסטית מקבוצת ההשוואה — לא שגיאה בנתונים ולא עסקה שגויה"]),
+  };
+}
+
+export function anomalyDefinition(): string {
+  return (
+    `עסקה מסומנת כחריגה כאשר המחיר למ״ר שלה רחוק לפחות ${ANOMALY_THRESHOLD} ` +
+    `סטיות חציוניות מוחלטות (MAD) מחציון קבוצת ההשוואה — אותה עיר ואותו מספר חדרים, ` +
+    `בקבוצה של ${MIN_PEERS} עסקאות לפחות`
+  );
+}
