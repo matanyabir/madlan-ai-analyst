@@ -210,6 +210,24 @@ arithmetically valid and epistemically empty. Guarding that required the
 analysis layer to know what it is not entitled to say, which is a different
 kind of code from the code that knows how to divide.
 
+## Smaller ones, recorded for completeness
+
+- **`middleware.ts` does not exist in Next 16.** The plan specified it from
+  training-era knowledge; it is `proxy.ts` now. Caught by reading the docs
+  Next itself drops into the repo. The same page carried the more important
+  correction: proxy runs on every request including prefetches and must not
+  be the authorization boundary — so the real check moved into the page and
+  the route handler, and proxy does only the optimistic redirect.
+- **Recharts 3 renamed the custom-tooltip prop type** from `TooltipProps` to
+  `TooltipContentProps`, and the context-injected props must be `Partial` at
+  the JSX call site. Found by the compiler, fixed by reading
+  `node_modules/recharts/types`, not by guessing.
+- **A `Secure` cookie and Playwright.** One e2e assertion used
+  `page.request`, which does not apply the browser exception that lets
+  `Secure` cookies work over `http://localhost`. The tempting fix was to
+  drop `secure` in production. The test now issues the request from inside
+  the page instead, exercising the real cookie semantics.
+
 ---
 
 ## Standing assumptions
