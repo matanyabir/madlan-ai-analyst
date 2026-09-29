@@ -266,6 +266,25 @@ npm run build:snapshot    # rebuild data/snapshot.json from the CSV
 npm run hash-password -- "pw"   # for ADMIN_PASSWORD_HASH
 ```
 
+### Deploying
+
+```bash
+npx vercel login
+npx vercel link
+npx vercel env add AUTH_SECRET production        # openssl rand -base64 32
+npx vercel env add ADMIN_EMAIL production
+npx vercel env add ADMIN_PASSWORD_HASH production   # npm run hash-password
+npx vercel env add USER_EMAIL production
+npx vercel env add USER_PASSWORD_HASH production
+npx vercel env add ANTHROPIC_API_KEY production     # optional
+npx vercel --prod
+```
+
+`vercel.json` pins the function to `fra1`, the closest region to Israel.
+`ANTHROPIC_API_KEY` is optional even in production — without it the
+deployment serves the deterministic path, which is a legitimate way to
+demonstrate the fallback.
+
 ### Admin
 
 Two accounts seeded from env vars; `/admin` is guarded by `proxy.ts`

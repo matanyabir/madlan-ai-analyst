@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { getSnapshot } from "@/lib/snapshot";
 import { ask, QuestionError } from "./ask";
-import { cacheClear, cacheStats } from "@/lib/cache/responseCache";
+import { cacheClear } from "@/lib/cache/responseCache";
 import * as client from "@/lib/llm/client";
 import * as router from "@/lib/llm/router";
 import * as narrator from "@/lib/llm/narrator";

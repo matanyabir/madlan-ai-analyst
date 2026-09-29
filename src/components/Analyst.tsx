@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import type { AskAnswer } from "@/lib/ask";
 import { AnswerView } from "./AnswerView";
 
@@ -129,9 +130,9 @@ export function Analyst({ dealCount }: { dealCount: number }) {
           <p className="font-semibold text-negative">{error}</p>
           <p className="mt-1 text-sm text-muted">
             אפשר לנסח את השאלה מחדש, או לעיין בעסקאות ישירות בעמוד{" "}
-            <a href="/browse" className="font-medium text-accent underline">
+            <Link href="/browse" className="font-medium text-accent underline">
               עיון בעסקאות
-            </a>
+            </Link>
             .
           </p>
         </div>

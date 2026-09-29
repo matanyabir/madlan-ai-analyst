@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { LoginForm } from "@/components/LoginForm";
 
 export const dynamic = "force-dynamic";
@@ -19,9 +20,9 @@ export default function LoginPage() {
         </Suspense>
 
         <p className="mt-6 text-center text-sm">
-          <a href="/" className="text-accent hover:underline">
+          <Link href="/" className="text-accent hover:underline">
             חזרה לאנליסט
-          </a>
+          </Link>
         </p>
       </div>
     </main>

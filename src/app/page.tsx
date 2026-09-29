@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getSnapshot } from "@/lib/snapshot";
 import { Analyst } from "@/components/Analyst";
 import { formatCount, formatRange } from "@/components/format";
@@ -31,8 +32,8 @@ export default function Home() {
               </p>
             </div>
             <nav className="flex shrink-0 gap-3 text-sm">
-              <a href="/browse" className="text-accent hover:underline">עיון</a>
-              <a href="/admin" className="text-muted hover:underline">ניהול</a>
+              <Link href="/browse" className="text-accent hover:underline">עיון</Link>
+              <Link href="/admin" className="text-muted hover:underline">ניהול</Link>
             </nav>
           </div>
 

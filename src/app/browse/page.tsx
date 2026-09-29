@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getSnapshot } from "@/lib/snapshot";
 import { searchTransactions, getStatistics, type DealFilter } from "@/lib/analysis";
 import { DealList } from "@/components/renderers/DealList";
@@ -66,9 +67,9 @@ export default async function BrowsePage({
                 סינון ישיר במאגר, ללא מודל שפה. העמוד הזה עובד גם כשהמודל אינו זמין.
               </p>
             </div>
-            <a href="/" className="shrink-0 text-sm text-accent hover:underline">
+            <Link href="/" className="shrink-0 text-sm text-accent hover:underline">
               לאנליסט
-            </a>
+            </Link>
           </div>
         </div>
       </header>
@@ -93,9 +94,9 @@ export default async function BrowsePage({
           >
             סינון
           </button>
-          <a href="/browse" className="py-2 text-sm text-muted hover:underline">
+          <Link href="/browse" className="py-2 text-sm text-muted hover:underline">
             ניקוי
-          </a>
+          </Link>
         </form>
 
         {stats.type === "statistics" && (

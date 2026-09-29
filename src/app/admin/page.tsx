@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { requireRole } from "@/lib/auth/guard";
 import { getSnapshot, snapshotOrigin } from "@/lib/snapshot";
 import { AdminUpload } from "@/components/AdminUpload";
@@ -38,7 +39,7 @@ export default async function AdminPage() {
             </div>
             <div className="flex items-center gap-3 text-sm">
               <span className="ltr text-xs text-subtle">{session.email}</span>
-              <a href="/" className="text-accent hover:underline">לאנליסט</a>
+              <Link href="/" className="text-accent hover:underline">לאנליסט</Link>
               <LogoutButton />
             </div>
           </div>
