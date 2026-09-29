@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getSnapshot, snapshotOrigin } from "@/lib/snapshot";
 import { cacheStats } from "@/lib/cache/responseCache";
 import {
-  llmAvailable, ROUTER_MODEL, NARRATOR_MODEL, CANONICALIZER_MODEL,
+  llmAvailable, llmKeyConfigured, isAiEnabled,
+  ROUTER_MODEL, NARRATOR_MODEL, CANONICALIZER_MODEL,
 } from "@/lib/llm/client";
 
 export const runtime = "nodejs";
@@ -22,6 +23,8 @@ export async function GET() {
     },
     llm: {
       configured: llmAvailable(),
+      keyConfigured: llmKeyConfigured(),
+      enabledByAdmin: isAiEnabled(),
       models: {
         router: ROUTER_MODEL,
         narrator: NARRATOR_MODEL,

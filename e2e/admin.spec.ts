@@ -80,6 +80,70 @@ test.describe("access control", () => {
   });
 });
 
+test.describe("the AI kill switch", () => {
+  test.beforeEach(async ({ page }) => {
+    expect(await login(page, ADMIN)).toBe(200);
+  });
+
+  test("explains itself when no key is configured", async ({ page }) => {
+    // The e2e server runs without ANTHROPIC_API_KEY, so the panel must say
+    // that rather than offer a switch that could not do anything.
+    const panel = page.getByTestId("ai-toggle");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("לא הוגדר מפתח API");
+    await expect(panel).toContainText("כל המספרים מדויקים");
+    await expect(page.getByTestId("ai-toggle-button")).toHaveCount(0);
+  });
+
+  test("the switch API is admin-only", async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    expect(await login(page, USER)).toBe(200);
+
+    const status = await page.evaluate(async () => {
+      const r = await fetch("/api/admin/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      });
+      return r.status;
+    });
+    expect(status).toBe(403);
+    await context.close();
+  });
+
+  test("rejects a malformed value", async ({ page }) => {
+    const status = await page.evaluate(async () => {
+      const r = await fetch("/api/admin/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: "yes please" }),
+      });
+      return r.status;
+    });
+    expect(status).toBe(400);
+  });
+
+  test("turning it off still answers every question", async ({ page }) => {
+    // The switch is the demo: with the model off, the product keeps working.
+    await page.evaluate(async () => {
+      await fetch("/api/admin/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      });
+    });
+
+    await page.goto("/");
+    await page.getByTestId("question-input").fill("תשווה בין רמת גן לגבעתיים");
+    await page.getByTestId("submit").click();
+
+    await expect(page.getByTestId("comparison")).toBeVisible();
+    await expect(page.getByTestId("degraded-badge")).toBeVisible();
+    await expect(page.getByTestId("evidence-count")).not.toHaveText("0");
+  });
+});
+
 test.describe("the admin upload", () => {
   test.beforeEach(async ({ page }) => {
     // login() already lands on /admin; no second navigation needed.

@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/guard";
 import { getSnapshot, snapshotOrigin } from "@/lib/snapshot";
+import { isAiEnabled, llmKeyConfigured } from "@/lib/llm/client";
 import { AdminUpload } from "@/components/AdminUpload";
+import { AiToggle } from "@/components/AiToggle";
 import { LogoutButton } from "@/components/LogoutButton";
 import { formatCount, formatRange } from "@/components/format";
 
@@ -57,7 +59,8 @@ export default async function AdminPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6">
+      <main className="mx-auto w-full max-w-5xl flex-1 space-y-8 px-4 py-6 sm:px-6">
+        <AiToggle initialEnabled={isAiEnabled()} keyConfigured={llmKeyConfigured()} />
         <AdminUpload currentVersion={snapshot.version} />
       </main>
     </>

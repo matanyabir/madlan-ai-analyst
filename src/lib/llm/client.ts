@@ -54,10 +54,39 @@ export const NARRATOR_MAX_TOKENS = 700;
 export const ROUTER_TIMEOUT_MS = Number(process.env.LLM_ROUTER_TIMEOUT_MS ?? 6000);
 export const NARRATOR_TIMEOUT_MS = Number(process.env.LLM_NARRATOR_TIMEOUT_MS ?? 6000);
 
+/**
+ * Runtime kill switch for the model, toggled by an admin.
+ *
+ * Instance-local and in-memory, exactly like the snapshot: it does not
+ * survive a cold start and does not reach other instances. That is the same
+ * honest limitation, and the admin UI says so.
+ *
+ * It exists for two reasons. Operationally it is the lever you want when the
+ * model is misbehaving or burning budget and you do not want to redeploy to
+ * stop it. For a demo it lets someone switch the LLM off and watch the same
+ * questions still get answered by the deterministic path — which is easier
+ * to believe than a paragraph claiming it works.
+ */
+let aiEnabled = true;
+
+export function isAiEnabled(): boolean {
+  return aiEnabled;
+}
+
+/** Returns the new state. */
+export function setAiEnabled(next: boolean): boolean {
+  aiEnabled = next;
+  return aiEnabled;
+}
+
 let client: Anthropic | null = null;
 
-/** Null when no key is configured — the app then runs entirely deterministically. */
+/**
+ * Null when no key is configured, or when an admin has switched the model
+ * off — the app then runs entirely deterministically.
+ */
 export function getClient(): Anthropic | null {
+  if (!aiEnabled) return null;
   if (!process.env.ANTHROPIC_API_KEY) return null;
   client ??= new Anthropic({
     // One retry, and only for the transient classes. A schema failure is not
@@ -68,6 +97,11 @@ export function getClient(): Anthropic | null {
 }
 
 export function llmAvailable(): boolean {
+  return aiEnabled && Boolean(process.env.ANTHROPIC_API_KEY);
+}
+
+/** True when a key exists but an admin has turned the model off. */
+export function llmKeyConfigured(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 

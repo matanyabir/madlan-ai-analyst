@@ -215,6 +215,31 @@ matching transactions" rather than inventing any. Cities stay enumerated —
 
 ## Failure handling
 
+### The kill switch
+
+`/admin` has a toggle that turns the model off for that instance at runtime.
+It is the operational lever you want when the model misbehaves or burns
+budget and you do not want to redeploy to stop it — and it is the fastest way
+to show that the fallback is real:
+
+```
+AI on    "כמה עולה דירת גן ממוצעת"   4,753 ms   LLM routed, LLM narrated
+AI off   same question                   1 ms   regex routed, templated
+         both answer ₪5,020,000 over 60 deals
+```
+
+Identical number, 4,700× faster, plainer prose. That is the architecture in
+one comparison: the model was never computing anything, so removing it
+changes the writing and not the answer.
+
+Toggling flushes the response cache, because cached answers carry the prose
+that produced them and a `degraded` flag — serving model-written
+explanations while the model is off would make the badge lie about the
+answer on screen. Like the snapshot, the setting is instance-local and does
+not survive a cold start; the panel says so.
+
+
+
 | Failure | Behaviour |
 |---|---|
 | No API key | Deterministic router + template narrator. Everything works. |
