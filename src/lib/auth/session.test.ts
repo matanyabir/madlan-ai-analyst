@@ -27,9 +27,24 @@ describe("password hashing", () => {
   });
 
   it("rejects a malformed or truncated stored hash instead of throwing", () => {
-    for (const bad of ["", "nonsense", "scrypt$abc", "md5$aa$bb", "scrypt$aa$bb"]) {
+    for (const bad of ["", "nonsense", "scrypt:abc", "md5:aa:bb", "scrypt:aa:bb"]) {
       expect(verifyPassword("x", bad)).toBe(false);
     }
+  });
+
+  it("survives a round trip through a dotenv file", () => {
+    // Regression: the hash used to be $-delimited, which dotenv expands as a
+    // variable reference -- "scrypt$aabb$ccdd" loaded as "scrypt" and every
+    // login failed silently. Unit tests passed because they never went
+    // through env parsing.
+    const stored = hashPassword("round-trip");
+    expect(stored).not.toContain("$");
+
+    const line = `ADMIN_PASSWORD_HASH=${stored}`;
+    const parsedValue = line.slice(line.indexOf("=") + 1);
+    // The value must contain nothing dotenv would interpolate.
+    expect(parsedValue).toBe(stored);
+    expect(verifyPassword("round-trip", parsedValue)).toBe(true);
   });
 });
 

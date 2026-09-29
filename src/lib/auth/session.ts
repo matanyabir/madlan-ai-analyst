@@ -36,15 +36,24 @@ function secret(): Uint8Array {
 
 // ------------------------------------------------------------- passwords
 
-/** `scrypt$<saltHex>$<hashHex>`. Produced by `npm run hash-password`. */
+/**
+ * `scrypt:<saltHex>:<hashHex>`. Produced by `npm run hash-password`.
+ *
+ * The separator is a colon, not the conventional `$`, and that is
+ * deliberate: this value's destination is an environment file, and dotenv
+ * expands `$NAME` as a variable reference. A `$`-delimited hash pasted into
+ * .env.local silently loads as the literal string "scrypt" and every login
+ * fails with no error anywhere. A credential format that cannot survive the
+ * file it is designed to live in is the wrong format.
+ */
 export function hashPassword(password: string): string {
   const salt = randomBytes(16);
   const hash = scryptSync(password, salt, SCRYPT_KEYLEN);
-  return `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
+  return `scrypt:${salt.toString("hex")}:${hash.toString("hex")}`;
 }
 
 export function verifyPassword(password: string, stored: string): boolean {
-  const parts = stored.split("$");
+  const parts = stored.split(":");
   if (parts.length !== 3 || parts[0] !== "scrypt") return false;
 
   const salt = Buffer.from(parts[1], "hex");

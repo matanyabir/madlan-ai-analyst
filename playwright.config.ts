@@ -1,6 +1,19 @@
 import { defineConfig, devices } from "@playwright/test";
+import { hashPassword } from "./src/lib/auth/session";
 
 const PORT = 3100;
+
+/**
+ * The e2e server uses *hashed* credentials, not the plaintext env vars.
+ *
+ * The plaintext path is the easier one to wire up here, and using it left
+ * the hashed path -- the one the README tells a real user to use -- with no
+ * integration coverage. That gap hid a bug where a $-delimited hash was
+ * silently mangled by dotenv (docs/AI_LOG.md #7). Generating the hashes here
+ * means the suite exercises the path that actually ships.
+ */
+const ADMIN_PASSWORD = "admin-e2e-password";
+const USER_PASSWORD = "user-e2e-password";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -25,9 +38,9 @@ export default defineConfig({
         env: {
           AUTH_SECRET: "e2e-test-secret-not-for-production-use-0123456789",
           ADMIN_EMAIL: "admin@madlan.test",
-          ADMIN_PASSWORD: "admin-e2e-password",
+          ADMIN_PASSWORD_HASH: hashPassword(ADMIN_PASSWORD),
           USER_EMAIL: "user@madlan.test",
-          USER_PASSWORD: "user-e2e-password",
+          USER_PASSWORD_HASH: hashPassword(USER_PASSWORD),
           // Deliberately absent: the e2e suite runs against a server with no
           // model, which is how constraint 6 ("survive the model being
           // unavailable") gets tested rather than asserted.

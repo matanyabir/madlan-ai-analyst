@@ -2,10 +2,11 @@
 
 The brief asks for a short log of how this was built with AI assistance,
 "including at least one time it gave you a bad answer and you caught it".
-There are six, and they are recorded as they happened rather than
-reconstructed at the end. The two worth reading are #5, where the bad answer
-came from a tool I had written an hour earlier, and #6, where correct code
-produced a false statement.
+There are seven, and they are recorded as they happened rather than
+reconstructed at the end. The three worth reading are #5, where the bad
+answer came from a tool I had written an hour earlier; #6, where correct
+code produced a false statement; and #7, which a full green test suite could
+not have caught.
 
 ## Tools
 
@@ -209,6 +210,59 @@ claim is a number *plus* a sample size *plus* a framing. A median of one is
 arithmetically valid and epistemically empty. Guarding that required the
 analysis layer to know what it is not entitled to say, which is a different
 kind of code from the code that knows how to divide.
+
+## Bad answer #7 — a passing test suite that proved the wrong thing
+
+**What happened.** `hashPassword` produced the conventional format,
+`scrypt$<salt>$<hash>`. Following my own README — `npm run hash-password`,
+paste into `.env.local` — every login failed with "אימייל או סיסמה שגויים".
+
+**How it was caught.** Only by actually doing what the README says. 253 tests
+were green, including sixteen dedicated auth tests that round-trip the hash,
+reject tampered tokens and verify both roles.
+
+The cause: **dotenv expands `$NAME` as a variable reference.** The value
+`scrypt$7d7b38...$32cf2a...` loads into `process.env` as the literal string
+`"scrypt"` — the two `$`-prefixed segments expand to nothing. No error is
+raised anywhere. `verifyPassword` receives a six-character string, fails its
+shape check, and returns `false`, which is indistinguishable from a wrong
+password.
+
+```
+in file  : 168 chars | scrypt$7d7b3862d85e88a2946a6fe7b52d58d7$32cf2…
+as loaded:   6 chars | scrypt
+```
+
+**Why every test passed.** Two independent blind spots that happened to
+align:
+
+1. The unit tests call `hashPassword` and pass the result straight to
+   `verifyPassword` in the same process. Correct, and irrelevant — they never
+   cross the boundary where the bug lives.
+2. The e2e suite exercises the *plaintext* `ADMIN_PASSWORD` path, because
+   generating a hash inside the Playwright config was awkward. So the hashed
+   path — the one the README tells a real user to use, and the only one
+   suitable for production — had no integration coverage at all.
+
+**Fix.** The separator is now `:`. The problem is not really dotenv's
+behaviour; it is that I chose a delimiter that is a metacharacter in the file
+this value was designed to be stored in. A credential format that cannot
+survive its own destination is the wrong format, and quoting the value in
+`.env` would have been a workaround, not a fix. There is now a regression
+test asserting the hash contains no `$`.
+
+**The lesson, and the one I would actually teach.** A green suite tells you
+the code does what the tests say. It says nothing about whether the tests
+cover the path the user takes. The two things that hid this were both
+reasonable decisions: unit tests that stay in-process, and an e2e setup that
+picked the easier of two equivalent-looking auth paths. Neither was lazy.
+What was missing was noticing that "equivalent-looking" was an assumption —
+the plaintext and hashed paths differ precisely in that one of them stores a
+structured value in a file with its own grammar.
+
+I found it in the last ten minutes of the build, by running my own setup
+instructions. That is the cheapest integration test there is and I had not
+run it until then.
 
 ## Smaller ones, recorded for completeness
 
