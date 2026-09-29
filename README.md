@@ -203,12 +203,37 @@ projection — about $18.65/day.
 
 `LLM_DAILY_QUESTION_BUDGET=0` is also the kill switch without a redeploy.
 
-**The honest limitation:** this counter is per serverless instance, for the
-same reason the response cache is — `globalThis` is not shared across
-instances. N instances permit N × the allowance. That makes the bound
-approximate rather than exact, which is still categorically different from
-absent, and the fix is the same shared-storage step the cache needs. Both
-counters are on `/api/health`.
+**The honest limitation, measured on the deployment.** This state is per
+serverless instance, for the same reason the response cache is — `globalThis`
+is not shared across instances. That is easy to state and easy to
+underestimate, so here is what it looks like in production. Twenty requests,
+same question, same IP, sent **sequentially**:
+
+```
+200 200 200 200 200 200 200 200 200 200 200 200 200 429 429 429 429 429 429 429
+```
+
+Thirteen through — the 12-token burst plus one refill — then refused. And
+`/api/health` immediately afterwards, showing what those twenty requests
+actually cost:
+
+```
+llmQuestionsUsed 1 · cacheEntries 1 · cacheHits 13 · trackedClients 1
+```
+
+One model call for twenty requests: the cache absorbed twelve and the limiter
+refused seven.
+
+The same twenty sent **in parallel** all returned 200. Vercel spread them
+across several instances, each starting with a full bucket. So the burst guard
+is real against a naive loop and leaky against a caller that fans out, and N
+instances permit N × the daily allowance for the same reason.
+
+That is a bound rather than an exact one, which is still categorically
+different from none — and the fix is the shared-storage step the response
+cache already needs, a counter in Redis, which changes `lib/llm/budget.ts` and
+nothing else. Both counters are on `/api/health`, so the number is checkable
+rather than asserted.
 
 ### The thing I got wrong, and what it taught me
 
