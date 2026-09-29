@@ -213,11 +213,13 @@ would quietly change medians. Logged as an open question rather than guessed.
 | Raw CSV | 530 |
 | − identical duplicates collapsed | −6 |
 | − conflicting duplicate rows held out of aggregates | −8 (4 pairs) |
-| − quarantined for unusable price or size | −12 |
-| **Analysable** | **504** |
+| − quarantined for unusable price or size | −11 |
+| **Analysable** | **505** (95.3%) |
 
 The pipeline computes these figures; they are not hardcoded, and the UI shows
-the real number for every query.
+the real number for every query. Of the 11 quarantined rows, 10 lack a usable
+`size_sqm` and one is `D100317`; `D100251`'s zero price also leaves it without
+a size-derived metric.
 
 ## Assumptions worth challenging
 

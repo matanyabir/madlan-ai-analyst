@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import Papa from "papaparse";
 import type {
   Deal, IngestIssue, IssueSeverity, Snapshot, SnapshotCounts, Vocabulary,
@@ -127,8 +128,15 @@ export async function ingestCsv(csvText: string, options: IngestOptions = {}): P
   const analyzable = deduped.deals.filter((d) => d.isAnalyzable && d.dealDate);
   const dates = analyzable.map((d) => d.dealDate!).sort();
 
+  // Content-addressed, not timestamped: rebuilding from the same CSV must
+  // produce the same version, because the response cache keys on it.
+  const version = createHash("sha256")
+    .update(csvText)
+    .digest("hex")
+    .slice(0, 12);
+
   return {
-    version: `${new Date().toISOString().slice(0, 19).replace(/[:T-]/g, "")}-${deduped.deals.length}`,
+    version,
     builtAt: new Date().toISOString(),
     sourceFile: options.sourceFile ?? "upload",
     deals: deduped.deals,
