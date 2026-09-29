@@ -1,8 +1,9 @@
 # אנליסט הנדל״ן — Madlan AI Real Estate Analyst
 
-Ask questions in Hebrew about 530 real Israeli property transactions. The
-model understands the question and writes the explanation; **every number is
-computed in TypeScript from the data**, and every answer shows what it rests
+Ask questions in Hebrew about 530 real Israeli property transactions. **The
+product deliberately separates language from computation:** the model
+interprets the question and explains the result, while **every number is
+computed in TypeScript from the data** — and every answer shows what it rests
 on.
 
 **Live:** <https://madlan-ai-analyst.vercel.app>
