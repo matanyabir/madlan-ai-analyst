@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSnapshot, snapshotOrigin } from "@/lib/snapshot";
 import { cacheStats } from "@/lib/cache/responseCache";
-import { llmAvailable, MODEL } from "@/lib/llm/client";
+import {
+  llmAvailable, ROUTER_MODEL, NARRATOR_MODEL, CANONICALIZER_MODEL,
+} from "@/lib/llm/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +20,14 @@ export async function GET() {
       rawRows: snapshot.counts.rawRows,
       dateRange: snapshot.dateRange,
     },
-    llm: { configured: llmAvailable(), model: MODEL },
+    llm: {
+      configured: llmAvailable(),
+      models: {
+        router: ROUTER_MODEL,
+        narrator: NARRATOR_MODEL,
+        canonicalizer: CANONICALIZER_MODEL,
+      },
+    },
     cache: cacheStats(),
   });
 }

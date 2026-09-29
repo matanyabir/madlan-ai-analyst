@@ -1,6 +1,6 @@
 import type { Snapshot } from "@/lib/types";
 import {
-  getClient, isTransient, readUsage, MODEL, ROUTER_MAX_TOKENS, ROUTER_TIMEOUT_MS,
+  getClient, isTransient, readUsage, ROUTER_MODEL, ROUTER_MAX_TOKENS, ROUTER_TIMEOUT_MS,
   type Usage, Anthropic,
 } from "./client";
 import { buildToolDefinitions } from "./tools";
@@ -64,7 +64,7 @@ export async function routeQuestion(
   const attempt = async (): Promise<Anthropic.Message> =>
     client.messages.create(
       {
-        model: MODEL,
+        model: ROUTER_MODEL,
         max_tokens: ROUTER_MAX_TOKENS,
         // Stable prefix first, volatile question last, so the cached portion
         // is byte-identical across every request for a given snapshot.

@@ -13,7 +13,39 @@ import Anthropic from "@anthropic-ai/sdk";
  *     classification and call 2 is two sentences.
  *   - `output_config.effort` errors on Haiku 4.5. Not sent.
  */
-export const MODEL = "claude-haiku-4-5";
+const DEFAULT_MODEL = "claude-haiku-4-5";
+
+/**
+ * Model per role, overridable without a code change.
+ *
+ * The three call sites have genuinely different requirements, which is why
+ * they are configured separately rather than sharing one knob:
+ *
+ *   router        classification over a closed set of seven tools. A small
+ *                 model is the right instrument, and this is the call that
+ *                 moves to Jev (see provider.ts).
+ *   narrator      open-ended Hebrew prose. The only place where model tier
+ *                 is visible to the user.
+ *   canonicalizer closed set again, and it runs once per upload rather than
+ *                 per request, so cost barely matters here.
+ *
+ * LLM_MODEL overrides all three at once; the per-role vars take precedence.
+ * Nothing validates the string against a list of known models on purpose —
+ * a new model should be usable the day it ships, and an invalid id fails
+ * loudly on the first call rather than silently.
+ */
+const pick = (specific: string | undefined, shared: string | undefined) =>
+  specific?.trim() || shared?.trim() || DEFAULT_MODEL;
+
+export const ROUTER_MODEL = pick(process.env.LLM_ROUTER_MODEL, process.env.LLM_MODEL);
+export const NARRATOR_MODEL = pick(process.env.LLM_NARRATOR_MODEL, process.env.LLM_MODEL);
+export const CANONICALIZER_MODEL = pick(
+  process.env.LLM_CANONICALIZER_MODEL,
+  process.env.LLM_MODEL,
+);
+
+/** @deprecated Prefer the per-role constants. Kept for the health endpoint. */
+export const MODEL = DEFAULT_MODEL;
 
 export const ROUTER_MAX_TOKENS = 512;
 export const NARRATOR_MAX_TOKENS = 700;

@@ -1,6 +1,6 @@
 import type { AnalysisResult } from "@/lib/analysis";
 import {
-  getClient, isTransient, readUsage, MODEL, NARRATOR_MAX_TOKENS, NARRATOR_TIMEOUT_MS,
+  getClient, isTransient, readUsage, NARRATOR_MODEL, NARRATOR_MAX_TOKENS, NARRATOR_TIMEOUT_MS,
   type Usage, Anthropic,
 } from "./client";
 
@@ -111,7 +111,7 @@ export async function narrate(result: AnalysisResult): Promise<NarrationOutcome>
   const attempt = async () =>
     client.messages.create(
       {
-        model: MODEL,
+        model: NARRATOR_MODEL,
         max_tokens: NARRATOR_MAX_TOKENS,
         system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: promptPayload(result) }],

@@ -1,6 +1,6 @@
 import type { Deal, IngestIssue } from "@/lib/types";
 import { CANONICAL_CITIES } from "@/lib/normalize/aliases";
-import { getClient, isTransient, MODEL, Anthropic } from "@/lib/llm/client";
+import { getClient, isTransient, CANONICALIZER_MODEL, Anthropic } from "@/lib/llm/client";
 
 /**
  * AI canonicalization — the one place the model touches the data.
@@ -119,7 +119,7 @@ async function askClaude(values: string[]): Promise<Mapping[] | null> {
   const attempt = () =>
     client.messages.create(
       {
-        model: MODEL,
+        model: CANONICALIZER_MODEL,
         max_tokens: 2048,
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         tools: [tool] as unknown as Anthropic.ToolUnion[],

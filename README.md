@@ -6,7 +6,7 @@ computed in TypeScript from the data**, and every answer shows what it rests
 on.
 
 **Live:** _(deployed URL)_
-**Stack:** Next.js 16 · TypeScript · Tailwind 4 · Recharts · Claude Haiku 4.5
+**Stack:** Next.js 16 · TypeScript · Tailwind 4 · Recharts · Claude Haiku 4.5 (configurable)
 **Tests:** 252 unit (Vitest) · 39 end-to-end (Playwright)
 
 ---
@@ -139,6 +139,26 @@ the file. **530 in → 505 analysable (95.3%)**, and the UI shows the real
 number.
 
 ---
+
+## Choosing the model
+
+`claude-haiku-4-5` for all three call sites by default, overridable by
+environment variable with no code change — `/api/health` reports which is
+actually live.
+
+| Variable | Call site | Why it might differ |
+|---|---|---|
+| `LLM_ROUTER_MODEL` | intent + parameters | Classification over 7 tools. A small model is the right instrument, and this is the call that moves to Jev. |
+| `LLM_NARRATOR_MODEL` | the Hebrew explanation | Open-ended prose — the only place model tier is visible to a user. |
+| `LLM_CANONICALIZER_MODEL` | unknown values on upload | Closed-set choice, once per upload rather than per request. |
+| `LLM_MODEL` | all three | Shared default; a per-role variable wins over it. |
+
+The shape worth reaching for at scale is a cheap router with a better
+narrator — `LLM_ROUTER_MODEL=claude-haiku-4-5` with
+`LLM_NARRATOR_MODEL=claude-sonnet-5` — which spends the money only where it
+shows. Nothing validates the string against a list of known models on
+purpose: a new model should be usable the day it ships, and a wrong id fails
+loudly on the first call rather than silently degrading.
 
 ## Cost at 10,000 requests/day
 
