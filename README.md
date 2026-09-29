@@ -5,7 +5,7 @@ model understands the question and writes the explanation; **every number is
 computed in TypeScript from the data**, and every answer shows what it rests
 on.
 
-**Live:** _(deployed URL)_
+**Live:** <https://madlan-ai-analyst.vercel.app>
 **Stack:** Next.js 16 · TypeScript · Tailwind 4 · Recharts · Claude Haiku 4.5 (configurable)
 **Tests:** 252 unit (Vitest) · 39 end-to-end (Playwright)
 
