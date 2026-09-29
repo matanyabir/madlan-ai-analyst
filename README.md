@@ -7,7 +7,7 @@ on.
 
 **Live:** <https://madlan-ai-analyst.vercel.app>
 **Stack:** Next.js 16 · TypeScript · Tailwind 4 · Recharts · Claude Haiku 4.5 (configurable)
-**Tests:** 269 unit (Vitest) · 48 end-to-end (Playwright)
+**Tests:** 282 unit (Vitest) · 53 end-to-end (Playwright)
 
 ---
 
@@ -369,8 +369,8 @@ With no `ANTHROPIC_API_KEY` the app runs entirely on the deterministic path —
 which is the fastest way to see the fallback behaviour.
 
 ```bash
-npm test              # 269 unit tests
-npm run test:e2e      # 48 end-to-end
+npm test              # 282 unit tests
+npm run test:e2e      # 53 end-to-end
 npm run typecheck
 npm run profile           # regenerate docs/CSV_PROFILE.md
 npm run build:snapshot    # rebuild data/snapshot.json from the CSV
@@ -442,5 +442,5 @@ real Madlan feature would be judged and a demo would not.
 
 ---
 
-Development log, including four real AI mistakes and how they were caught:
+Development log, including eleven real AI mistakes and how they were caught:
 [`docs/AI_LOG.md`](docs/AI_LOG.md).
